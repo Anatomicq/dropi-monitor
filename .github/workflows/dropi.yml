@@ -1,0 +1,25 @@
+name: Dropi Monitor
+
+on:
+  schedule:
+    # GitHub usa horario UTC. Colombia = UTC-5.
+    - cron: '0 13 * * *'   # 08:00 Colombia
+    - cron: '0 21 * * *'   # 16:00 Colombia
+    - cron: '0 1 * * *'    # 20:00 Colombia (01:00 UTC del día siguiente)
+  workflow_dispatch: {}     # permite ejecutarlo a mano desde la pestaña Actions
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Ejecutar agente Dropi
+        run: node dropi-cloud.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
+          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
