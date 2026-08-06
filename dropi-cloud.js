@@ -60,13 +60,32 @@ async function consultar(id, token) {
     const data = await res.json();
     if (!data.isSuccess || !data.objects) return { existe: false, error: 'Respuesta inválida' };
     const o = data.objects;
-    const bod = (o.warehouse_product && o.warehouse_product[0]) || {};
-    const wh = bod.warehouse || {};
+    const esVariable = Array.isArray(o.variations) && o.variations.length > 0;
+
+    let stock, precioBase, precioSug, wh, nVariaciones = 0;
+    if (esVariable) {
+      // Producto con tallas/colores: el stock vive en cada variante → sumarlas.
+      nVariaciones = o.variations.length;
+      stock = o.variations.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+      const v0 = o.variations[0] || {};
+      precioBase = parseFloat(v0.sale_price || o.sale_price || 0);
+      precioSug  = parseFloat(v0.suggested_price || o.suggested_price || 0);
+      const wpv = (v0.warehouse_product_variation && v0.warehouse_product_variation[0]) || {};
+      wh = wpv.warehouse || {};
+    } else {
+      stock = o.stock == null ? 0 : o.stock;
+      precioBase = parseFloat(o.sale_price || 0);
+      precioSug  = parseFloat(o.suggested_price || 0);
+      const bod = (o.warehouse_product && o.warehouse_product[0]) || {};
+      wh = bod.warehouse || {};
+    }
+
     return {
-      existe: true, nombre: o.name, stock: o.stock == null ? 0 : o.stock,
+      existe: true, nombre: o.name, stock,
       activo: !!o.active, archivado: !!o.archived, aceptaPedidos: !!o.orders, eliminado: o.deleted_at != null,
-      precioBase: parseFloat(o.sale_price || 0), precioSug: parseFloat(o.suggested_price || 0),
+      precioBase, precioSug,
       bodega: wh.name || 'Sin bodega', ciudad: (wh.city && wh.city.name) || '',
+      esVariable, nVariaciones,
     };
   } catch (e) {
     return { existe: false, error: e.message };
@@ -82,6 +101,7 @@ function fila(prod, d) {
   else if (!d.aceptaPedidos) { estado = '❌ Sin pedidos'; notas = 'No acepta pedidos'; }
   else if (d.stock === 0)    { estado = '🔴 Sin stock';   notas = 'Stock en 0'; }
   else if (d.stock <= 10)    { estado = '⚠️ Stock bajo';  notas = 'Solo ' + d.stock + ' unidades'; }
+  if (d.esVariable) notas = (notas ? notas + ' | ' : '') + 'Variable: ' + d.nVariaciones + ' variantes (stock sumado)';
   return [
     prod.dropiId, prod.sku, prod.titulo, d.existe ? d.nombre : '—', d.existe ? d.stock : '—',
     d.existe ? (d.activo ? 'Sí' : 'No') : '—', d.existe ? (d.aceptaPedidos ? 'Sí' : 'No') : '—',
