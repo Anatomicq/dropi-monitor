@@ -1,0 +1,24 @@
+name: Debug Proveedor (temporal)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'IDs de producto separados por coma (opcional)'
+        required: false
+        default: '2088423,879675'
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Diagnóstico proveedor
+        run: node debug-proveedor.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          DEBUG_IDS: ${{ github.event.inputs.ids }}
