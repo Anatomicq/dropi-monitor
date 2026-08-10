@@ -80,10 +80,16 @@ async function consultar(id, token) {
       wh = bod.warehouse || {};
     }
 
+    // Proveedor (supplier): vive en objects.user → name + surname, y su teléfono/WhatsApp en user.phone.
+    const u = o.user || {};
+    const proveedor = ((u.name || '') + ' ' + (u.surname || '')).trim() || (u.email || 'Sin proveedor');
+    const telefono = u.phone ? String(u.phone) : '';
+
     return {
       existe: true, nombre: o.name, stock,
       activo: !!o.active, archivado: !!o.archived, aceptaPedidos: !!o.orders, eliminado: o.deleted_at != null,
       precioBase, precioSug,
+      proveedor, telefono,
       bodega: wh.name || 'Sin bodega', ciudad: (wh.city && wh.city.name) || '',
       esVariable, nVariaciones,
     };
@@ -104,9 +110,11 @@ function fila(prod, d) {
   if (d.esVariable) notas = (notas ? notas + ' | ' : '') + 'Variable: ' + d.nVariaciones + ' variantes (stock sumado)';
   return [
     prod.dropiId, prod.sku, prod.titulo, d.existe ? d.nombre : '—', d.existe ? d.stock : '—',
-    d.existe ? (d.activo ? 'Sí' : 'No') : '—', d.existe ? (d.aceptaPedidos ? 'Sí' : 'No') : '—',
-    d.existe ? (d.archivado ? 'Sí' : 'No') : '—', d.existe ? (d.eliminado ? 'Sí' : 'No') : '—',
-    prod.shopifyStatus, d.existe ? d.bodega : '—', d.existe ? d.ciudad : '—',
+    d.existe ? (d.activo ? 'Sí' : 'No') : '—',
+    d.existe ? (d.archivado ? 'Sí' : 'No') : '—',
+    prod.shopifyStatus,
+    d.existe ? d.proveedor : '—', d.existe ? d.telefono : '—',
+    d.existe ? d.bodega : '—', d.existe ? d.ciudad : '—',
     d.existe ? d.precioBase : 0, d.existe ? d.precioSug : 0, estado, notas,
   ];
 }
@@ -119,7 +127,7 @@ async function main() {
   log('Login OK. Consultando productos...');
 
   const encabezados = ['ID Dropi','SKU Shopify','Producto Shopify','Nombre en Dropi','Stock','Activo',
-    'Acepta Pedidos','Archivado','Eliminado','Estado Shopify','Bodega','Ciudad',
+    'Archivado','Estado Shopify','Proveedor','WhatsApp','Bodega','Ciudad',
     'Precio Base','Precio Sugerido','Estado General','Notas'];
 
   // "Respuesta inválida" = el producto de verdad no existe en la cuenta (no reintentar).
@@ -163,14 +171,42 @@ async function main() {
   for (let i = 0; i < productos.length; i++) if (!datos[i]) datos[i] = { existe: false, error: 'sin dato' };
 
   const filas = [encabezados, ...productos.map((p, i) => fila(p, datos[i]))];
-  const conStock = datos.filter(d => d.existe);
+
+  // Pestaña Resumen: categorías por stock, cada una con la lista de productos.
+  // Cada fila de detalle: [ID Dropi, Nombre del producto, Proveedor, Stock].
+  // Rangos: sin stock = 0 | bajo = 1–50 | medio = 51–99 | (100+ NO se listan en Resumen).
+  const filaResumen = (i, d) => [
+    productos[i].dropiId,
+    productos[i].titulo,
+    d.existe ? d.proveedor : '—',
+    d.existe ? d.stock : '—',
+  ];
+  const catSinStock = [], catBajo = [], catMedio = [], catNoEnc = [];
+  for (let i = 0; i < productos.length; i++) {
+    const d = datos[i];
+    if (!d.existe) { catNoEnc.push(filaResumen(i, d)); continue; }
+    const s = Number(d.stock) || 0;
+    if (s === 0)       catSinStock.push(filaResumen(i, d));
+    else if (s <= 50)  catBajo.push(filaResumen(i, d));
+    else if (s <= 99)  catMedio.push(filaResumen(i, d));
+    // 100+ unidades: no se agregan al Resumen (sí aparecen en la pestaña Inventario).
+  }
   const resumen = {
     total: productos.length,
-    sinStock: conStock.filter(d => d.stock === 0).length,
-    stockBajo: conStock.filter(d => d.stock > 0 && d.stock <= 10).length,
-    noEncontrados: datos.filter(d => !d.existe).length,
+    conteos: {
+      sinStock:      catSinStock.length,
+      stockBajo:     catBajo.length,
+      stockMedio:    catMedio.length,
+      noEncontrados: catNoEnc.length,
+    },
+    categorias: {
+      sinStock:      catSinStock,   // 0 unidades
+      stockBajo:     catBajo,       // 1–50
+      stockMedio:    catMedio,      // 51–99
+      noEncontrados: catNoEnc,      // no existen en Dropi
+    },
   };
-  log(`Resultado → sin stock: ${resumen.sinStock} | bajo: ${resumen.stockBajo} | no encontrados: ${resumen.noEncontrados}`);
+  log(`Resultado → sin stock: ${resumen.conteos.sinStock} | bajo(1-50): ${resumen.conteos.stockBajo} | medio(51-99): ${resumen.conteos.stockMedio} | no encontrados: ${resumen.conteos.noEncontrados}`);
 
   const timestamp = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
   const r = await fetch(WEBAPP_URL, {
