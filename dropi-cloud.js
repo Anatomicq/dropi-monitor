@@ -210,15 +210,29 @@ async function main() {
   log(`Resultado → sin stock: ${resumen.conteos.sinStock} | bajo(1-50): ${resumen.conteos.stockBajo} | medio(51-99): ${resumen.conteos.stockMedio} | no encontrados: ${resumen.conteos.noEncontrados}`);
 
   const timestamp = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-  const r = await fetch(WEBAPP_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: SECRET, timestamp, resumen, rows: filas }),
-    redirect: 'follow',
-  });
-  const txt = await r.text();
-  let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
-  if (ok) log('✅ Hoja de Google actualizada.');
-  else { log('⚠️ Respuesta inesperada de la hoja: ' + txt.slice(0, 200)); process.exitCode = 1; }
+  const payload = JSON.stringify({ secret: SECRET, timestamp, resumen, rows: filas });
+
+  // El web app de Apps Script a veces devuelve una página HTML (no JSON) por un hipo temporal
+  // de Google, y eso tumbaba toda la corrida. Reintentamos varias veces antes de rendirnos.
+  const INTENTOS_HOJA = 3;
+  const PAUSA_HOJA = 5000; // 5s entre intentos
+  let hojaOK = false;
+  for (let intento = 1; intento <= INTENTOS_HOJA; intento++) {
+    try {
+      const r = await fetch(WEBAPP_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: payload, redirect: 'follow',
+      });
+      const txt = await r.text();
+      let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
+      if (ok) { hojaOK = true; log('✅ Hoja de Google actualizada.'); break; }
+      log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: respuesta inesperada de la hoja (HTTP ${r.status}): ` + txt.slice(0, 120).replace(/\s+/g, ' '));
+    } catch (e) {
+      log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: error de red al escribir la hoja: ` + e.message);
+    }
+    if (intento < INTENTOS_HOJA) await sleep(PAUSA_HOJA);
+  }
+  if (!hojaOK) { log(`❌ No se pudo actualizar la hoja tras ${INTENTOS_HOJA} intentos.`); process.exitCode = 1; }
 
   // Empujar el MISMO stock a Shopify (emparejando por SKU). Solo productos que existen en Dropi.
   if (process.env.SHOPIFY_STORE) {
