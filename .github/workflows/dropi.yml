@@ -2,10 +2,12 @@ name: Dropi Monitor
 
 on:
   schedule:
-    # GitHub usa horario UTC. Colombia = UTC-5.
-    - cron: '0 13 * * *'   # 08:00 Colombia (8am)
-    - cron: '0 18 * * *'   # 13:00 Colombia (1pm)
+    # GitHub usa horario UTC. Colombia = UTC-5. 5 corridas/día (cabe en los 2.000 min gratis).
+    - cron: '0 12 * * *'   # 07:00 Colombia (7am)
+    - cron: '0 16 * * *'   # 11:00 Colombia (11am)
+    - cron: '0 20 * * *'   # 15:00 Colombia (3pm)
     - cron: '0 23 * * *'   # 18:00 Colombia (6pm)
+    - cron: '0 2 * * *'    # 21:00 Colombia (9pm) — 02:00 UTC del día siguiente
   workflow_dispatch: {}     # permite ejecutarlo a mano desde la pestaña Actions
 
 jobs:
