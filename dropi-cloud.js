@@ -18,7 +18,10 @@ const SECRET     = process.env.SHEETS_SECRET || '';
 // Dropi bloquea si se le consulta muy rápido. Vamos SECUENCIAL y pausado,
 // igual que la versión con navegador que logró 303/307.
 const PAUSA_MS   = 350;    // pausa entre cada producto
-const PAUSA_BLOQUEO = 90000; // si detecta bloqueo (varios fallos seguidos), espera 90s
+// Enfriamiento adaptativo ante bloqueo por rate-limit de Dropi:
+const BLOQUEO_UMBRAL   = 4;      // fallos seguidos para declarar bloqueo (antes 6: detectamos antes)
+const COOLDOWN_INICIAL = 60000;  // primera espera de enfriamiento (antes fijo 90s)
+const COOLDOWN_MAX     = 120000; // tope de espera si hay que escalar
 const MAX_RONDAS = 4;      // rondas de reintento para recuperar los bloqueados
 
 const log = (m) => console.log(`[${new Date().toISOString()}] ${m}`);
@@ -57,7 +60,10 @@ async function login() {
 async function consultar(id, token) {
   try {
     const res = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, { headers: apiHeaders(token) });
-    if (!res.ok) return { existe: false, error: 'HTTP ' + res.status };
+    if (!res.ok) {
+      const ra = Number(res.headers.get('retry-after'));
+      return { existe: false, error: 'HTTP ' + res.status, status: res.status, retryAfter: (ra > 0 ? ra : null) };
+    }
     const data = await res.json();
     if (!data.isSuccess || !data.objects) return { existe: false, error: 'Respuesta inválida' };
     const o = data.objects;
@@ -136,6 +142,7 @@ async function main() {
   const esReintentable = (d) => !d.existe && d.error && !/inválida/i.test(d.error);
 
   const datos = new Array(productos.length).fill(null);
+  let cooldown = COOLDOWN_INICIAL; // se adapta según lo que tarde en liberarse el bloqueo
   for (let ronda = 1; ronda <= MAX_RONDAS; ronda++) {
     const pend = [];
     for (let i = 0; i < productos.length; i++) if (!datos[i] || esReintentable(datos[i])) pend.push(i);
@@ -149,11 +156,19 @@ async function main() {
 
       if (esReintentable(d)) {
         seguidosFallo++;
-        if (seguidosFallo >= 6) {
-          log(`⏸️ Bloqueo temporal detectado. Esperando 90s para el enfriamiento...`);
-          await sleep(PAUSA_BLOQUEO);
+        if (seguidosFallo >= BLOQUEO_UMBRAL) {
+          // Cuánto esperar: si Dropi mandó Retry-After lo respetamos; si no, cooldown adaptativo.
+          let espera = cooldown;
+          if (d.retryAfter) espera = Math.min(d.retryAfter * 1000 + 2000, COOLDOWN_MAX);
+          log(`⏸️ Bloqueo detectado (HTTP ${d.status || '?'}${d.retryAfter ? `, retry-after=${d.retryAfter}s` : ''}). Esperando ${Math.round(espera / 1000)}s...`);
+          await sleep(espera);
           seguidosFallo = 0;
-          d = await consultar(productos[i].dropiId, token);
+          d = await consultar(productos[i].dropiId, token); // sonda: ¿ya se liberó?
+          if (esReintentable(d)) {
+            cooldown = Math.min(Math.round(cooldown * 1.5), COOLDOWN_MAX); // aún bloqueado: la próxima espera más
+          } else {
+            cooldown = COOLDOWN_INICIAL; // se liberó: volvemos a la espera base para no sobre-esperar
+          }
         }
       } else {
         seguidosFallo = 0;
