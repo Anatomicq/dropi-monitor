@@ -23,3 +23,6 @@ jobs:
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
           SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
           SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}

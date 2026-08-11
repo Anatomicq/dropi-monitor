@@ -9,6 +9,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { actualizarStockShopify } = require('./actualizar-shopify');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -218,6 +219,28 @@ async function main() {
   let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
   if (ok) log('✅ Hoja de Google actualizada.');
   else { log('⚠️ Respuesta inesperada de la hoja: ' + txt.slice(0, 200)); process.exitCode = 1; }
+
+  // Empujar el MISMO stock a Shopify (emparejando por SKU). Solo productos que existen en Dropi.
+  if (process.env.SHOPIFY_STORE) {
+    try {
+      const stockPorSku = new Map();
+      for (let i = 0; i < productos.length; i++) {
+        const d = datos[i];
+        const sku = productos[i].sku && String(productos[i].sku).trim();
+        if (sku && d && d.existe) stockPorSku.set(sku, d.stock);
+      }
+      log(`Actualizando stock en Shopify (${stockPorSku.size} SKUs)...`);
+      await actualizarStockShopify({
+        STORE: process.env.SHOPIFY_STORE,
+        CID: process.env.SHOPIFY_CLIENT_ID,
+        CS: process.env.SHOPIFY_CLIENT_SECRET,
+      }, stockPorSku);
+    } catch (e) {
+      log('⚠️ No se pudo actualizar Shopify: ' + e.message);
+    }
+  } else {
+    log('SHOPIFY_STORE no configurado; se omite la actualización de Shopify.');
+  }
 }
 
 main().catch(e => { console.error('❌ ERROR:', e.message); process.exit(1); });
