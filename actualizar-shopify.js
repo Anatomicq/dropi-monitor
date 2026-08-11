@@ -31,10 +31,13 @@ async function gql(STORE, t, query, variables) {
   return j.data;
 }
 
-const Q_LOC = `{ locations(first:5, query:"active:true"){ edges{ node{ id name } } } }`;
+// Incluimos inactivas/legacy para poder ver la bodega de la app 'Fulfillment Dropi'.
+const Q_LOC = `{ locations(first:30, includeInactive:true, includeLegacy:true){ edges{ node{ id name isActive fulfillmentService{ handle } } } } }`;
 const Q_VARS = `query($c:String){ productVariants(first:250, after:$c){ pageInfo{hasNextPage endCursor} edges{ node{ sku inventoryItem{ id tracked } } } } }`;
 const M_TRACK = `mutation($id:ID!){ inventoryItemUpdate(id:$id, input:{tracked:true}){ userErrors{ message } } }`;
 const M_SET = `mutation($input:InventorySetQuantitiesInput!){ inventorySetQuantities(input:$input){ userErrors{ field message } } }`;
+// inventoryActivate: crea el nivel de inventario en la bodega Y fija la cantidad disponible.
+const M_ACTIVATE = `mutation($id:ID!,$loc:ID!,$qty:Int){ inventoryActivate(inventoryItemId:$id, locationId:$loc, available:$qty){ inventoryLevel{ id } userErrors{ message } } }`;
 
 /**
  * @param {Object} cfg { STORE, CID, CS }
@@ -46,11 +49,14 @@ async function actualizarStockShopify(cfg, stockPorSku) {
   const stock = stockPorSku instanceof Map ? stockPorSku : new Map(Object.entries(stockPorSku));
   const t = await token(STORE, CID, CS);
 
-  // 1) Ubicación de la tienda
+  // 1) Ubicación destino: la bodega de Dropi ('Fulfillment Dropi'). Es la que surte los pedidos.
   const dl = await gql(STORE, t, Q_LOC);
-  const loc = dl.locations.edges[0]?.node;
-  if (!loc) throw new Error('No hay ubicación activa en Shopify.');
-  log(`Ubicación: ${loc.name}`);
+  const locs = dl.locations.edges.map(e => e.node);
+  const loc = locs.find(n => /dropi/i.test(n.name) || (n.fulfillmentService && /dropi/i.test(n.fulfillmentService.handle)))
+           || locs.find(n => n.isActive) || locs[0];
+  if (!loc) throw new Error('No hay ubicación en Shopify.');
+  if (!/dropi/i.test(loc.name)) log(`⚠️ No encontré 'Fulfillment Dropi'; usando ${loc.name}`);
+  log(`Ubicación destino: ${loc.name}`);
 
   // 2) Todas las variantes por SKU
   const bySku = new Map(); // sku -> { inventoryItemId, tracked }
@@ -83,19 +89,26 @@ async function actualizarStockShopify(cfg, stockPorSku) {
     await sleep(120);
   }
 
-  // 3b) Fijar el inventario disponible en lotes (ignoramos comparación de cantidad previa)
+  // 3b) Fijar el inventario. PRIMERO fijamos el valor ABSOLUTO (inventorySetQuantities);
+  //     si el producto aún no tiene nivel en la bodega, lo activamos con esa cantidad.
+  //     Nunca suma: siempre deja el stock EXACTO al de Dropi.
   let ok = 0, err = 0;
-  const LOTE = 100;
-  for (let i = 0; i < quantities.length; i += LOTE) {
-    const lote = quantities.slice(i, i + LOTE);
-    const input = { name: 'available', reason: 'correction', ignoreCompareQuantity: true, quantities: lote };
+  for (const q of quantities) {
+    let hecho = false, msg = '';
     try {
-      const r = await gql(STORE, t, M_SET, { input });
+      const r = await gql(STORE, t, M_SET, { input: { name: 'on_hand', reason: 'correction', ignoreCompareQuantity: true, quantities: [q] } });
       const ue = r.inventorySetQuantities.userErrors;
-      if (ue.length) { err += lote.length; log('lote ' + (i / LOTE + 1) + ' errores: ' + JSON.stringify(ue).slice(0, 200)); }
-      else ok += lote.length;
-    } catch (e) { err += lote.length; log('lote ' + (i / LOTE + 1) + ': ' + e.message); }
-    await sleep(300);
+      if (!ue.length) hecho = true;
+      else if (/not stocked/i.test(JSON.stringify(ue))) {
+        // No tiene nivel en la bodega → activarlo crea el nivel EN esa cantidad (fija, no suma).
+        const r2 = await gql(STORE, t, M_ACTIVATE, { id: q.inventoryItemId, loc: q.locationId, qty: q.quantity });
+        if (!r2.inventoryActivate.userErrors.length) hecho = true;
+        else msg = JSON.stringify(r2.inventoryActivate.userErrors).slice(0, 150);
+      } else msg = JSON.stringify(ue).slice(0, 150);
+    } catch (e) { msg = e.message; }
+    if (hecho) ok++;
+    else { err++; if (err <= 5) log('SKU item ' + q.inventoryItemId.split('/').pop() + ': ' + msg); }
+    await sleep(120);
   }
   log(`✅ Stock actualizado en Shopify: ${ok} | con error: ${err}`);
   return { actualizados: ok, errores: err, sinMatch };
