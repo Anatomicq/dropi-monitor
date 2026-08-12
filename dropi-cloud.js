@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { actualizarStockShopify } = require('./actualizar-shopify');
+const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -128,7 +129,23 @@ function fila(prod, d) {
 
 async function main() {
   if (!EMAIL || !PASSWORD || !WEBAPP_URL) throw new Error('Faltan variables de entorno (DROPI_EMAIL, DROPI_PASSWORD, SHEETS_WEBAPP_URL).');
-  const productos = JSON.parse(fs.readFileSync(path.join(__dirname, 'productos.json'), 'utf8'));
+
+  // Lista de productos AUTOMÁTICA desde Shopify (detecta agregados/editados/quitados).
+  // Si Shopify falla, se usa la lista fija productos.json como respaldo.
+  let productos;
+  if (process.env.SHOPIFY_STORE) {
+    try {
+      const r = await obtenerProductosShopify({ STORE: process.env.SHOPIFY_STORE, CID: process.env.SHOPIFY_CLIENT_ID, CS: process.env.SHOPIFY_CLIENT_SECRET });
+      productos = r.productos;
+      log(`Lista automática desde Shopify: ${productos.length} productos (ignorados sin Dropi: ${r.sinDropi}, sin SKU: ${r.sinSku}).`);
+    } catch (e) {
+      log('⚠️ No pude leer productos de Shopify (' + e.message + '). Uso la lista fija de respaldo.');
+    }
+  }
+  if (!productos || !productos.length) {
+    productos = JSON.parse(fs.readFileSync(path.join(__dirname, 'productos.json'), 'utf8'));
+    log(`Lista fija (respaldo): ${productos.length} productos.`);
+  }
   log(`Productos: ${productos.length}. Iniciando login...`);
   const token = await login();
   log('Login OK. Consultando productos...');
