@@ -1,0 +1,36 @@
+name: Shopify Editar (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: 'buscar (solo ver) o precio (cambiar precio)'
+        type: choice
+        options:
+          - buscar
+          - precio
+        default: buscar
+      consulta:
+        description: 'Título del producto a buscar (o sku:1234 para SKU exacto)'
+        required: true
+      precio:
+        description: 'Nuevo precio, sin puntos ni $ (solo si accion=precio). Ej: 43000'
+        required: false
+
+jobs:
+  editar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Editar Shopify
+        run: node shopify-editar.js
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          ACCION: ${{ github.event.inputs.accion }}
+          CONSULTA: ${{ github.event.inputs.consulta }}
+          PRECIO: ${{ github.event.inputs.precio }}
