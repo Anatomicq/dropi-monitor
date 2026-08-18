@@ -33,7 +33,7 @@ async function gql(STORE, t, query, variables) {
 
 // Incluimos inactivas/legacy para poder ver la bodega de la app 'Fulfillment Dropi'.
 const Q_LOC = `{ locations(first:30, includeInactive:true, includeLegacy:true){ edges{ node{ id name isActive fulfillmentService{ handle } } } } }`;
-const Q_VARS = `query($c:String){ productVariants(first:250, after:$c){ pageInfo{hasNextPage endCursor} edges{ node{ sku inventoryItem{ id tracked } } } } }`;
+const Q_VARS = `query($c:String){ productVariants(first:250, after:$c){ pageInfo{hasNextPage endCursor} edges{ node{ sku barcode inventoryItem{ id tracked } } } } }`;
 const M_TRACK = `mutation($id:ID!){ inventoryItemUpdate(id:$id, input:{tracked:true}){ userErrors{ message } } }`;
 const M_SET = `mutation($input:InventorySetQuantitiesInput!){ inventorySetQuantities(input:$input){ userErrors{ field message } } }`;
 // inventoryActivate: crea el nivel de inventario en la bodega Y fija la cantidad disponible.
@@ -58,30 +58,44 @@ async function actualizarStockShopify(cfg, stockPorSku) {
   if (!/dropi/i.test(loc.name)) log(`⚠️ No encontré 'Fulfillment Dropi'; usando ${loc.name}`);
   log(`Ubicación destino: ${loc.name}`);
 
-  // 2) Todas las variantes por SKU
-  const bySku = new Map(); // sku -> { inventoryItemId, tracked }
-  let cursor = null, page = 0;
+  // 2) Indexar variantes. La clave FIABLE es el codigo de barras = ID de Dropi;
+  //    el SKU es campo libre y estuvo duplicado (ver auditoria), por eso va de respaldo.
+  const byBarcode = new Map(); // barcode -> { inventoryItemId, tracked }
+  const bySku = new Map();     // sku     -> idem
+  let cursor = null, page = 0, dupBarcode = 0;
   do {
     const d = await gql(STORE, t, Q_VARS, { c: cursor });
     for (const e of d.productVariants.edges) {
       const n = e.node;
-      if (n.sku && n.inventoryItem?.id) bySku.set(String(n.sku).trim(), { id: n.inventoryItem.id, tracked: !!n.inventoryItem.tracked });
+      if (!n.inventoryItem?.id) continue;
+      const ref = { id: n.inventoryItem.id, tracked: !!n.inventoryItem.tracked };
+      if (n.barcode) {
+        const b = String(n.barcode).trim();
+        if (b) { if (byBarcode.has(b)) dupBarcode++; else byBarcode.set(b, ref); }
+      }
+      if (n.sku) {
+        const s = String(n.sku).trim();
+        if (s && !bySku.has(s)) bySku.set(s, ref);
+      }
     }
     cursor = d.productVariants.pageInfo.hasNextPage ? d.productVariants.pageInfo.endCursor : null;
     page++;
   } while (cursor && page < 60);
-  log(`Variantes con SKU en Shopify: ${bySku.size}`);
+  log(`Indexadas: ${byBarcode.size} por codigo de barras | ${bySku.size} por SKU` + (dupBarcode ? ` | ${dupBarcode} barcode(s) repetido(s) ignorado(s)` : ''));
 
-  // 3) Emparejar y fijar stock
+  // 3) Emparejar y fijar stock. La clave que llega es el ID de Dropi.
   const quantities = [];
-  let sinMatch = 0, activarTrack = [];
-  for (const [sku, cant] of stock) {
-    const v = bySku.get(String(sku).trim());
+  let sinMatch = 0, porBarcode = 0, porSku = 0, activarTrack = [];
+  for (const [dropiId, cant] of stock) {
+    const clave = String(dropiId).trim();
+    let v = byBarcode.get(clave);
+    if (v) porBarcode++;
+    else { v = bySku.get(clave); if (v) porSku++; }
     if (!v) { sinMatch++; continue; }
     if (!v.tracked) activarTrack.push(v.id);
     quantities.push({ inventoryItemId: v.id, locationId: loc.id, quantity: Math.max(0, Math.round(Number(cant) || 0)) });
   }
-  log(`A actualizar: ${quantities.length} | sin match: ${sinMatch} | activar tracking: ${activarTrack.length}`);
+  log(`A actualizar: ${quantities.length} (${porBarcode} por barcode, ${porSku} por SKU) | sin match: ${sinMatch} | activar tracking: ${activarTrack.length}`);
 
   // 3a) Activar tracking donde falte (necesario para que Shopify controle inventario)
   for (const id of activarTrack) {

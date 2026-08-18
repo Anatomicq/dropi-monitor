@@ -269,18 +269,21 @@ async function main() {
   // Empujar el MISMO stock a Shopify (emparejando por SKU). Solo productos que existen en Dropi.
   if (process.env.SHOPIFY_STORE) {
     try {
-      const stockPorSku = new Map();
+      // La clave es el ID de Dropi, que en Shopify vive en el campo "codigo de barras"
+      // (y desde la limpieza de agosto 2026, tambien en el SKU). El SKU antiguo era
+      // texto libre y estaba duplicado en 10 grupos, por eso ya no se usa como clave.
+      const stockPorId = new Map();
       for (let i = 0; i < productos.length; i++) {
         const d = datos[i];
-        const sku = productos[i].sku && String(productos[i].sku).trim();
-        if (sku && d && d.existe) stockPorSku.set(sku, d.stock);
+        const id = productos[i].dropiId && String(productos[i].dropiId).trim();
+        if (id && d && d.existe) stockPorId.set(id, d.stock);
       }
-      log(`Actualizando stock en Shopify (${stockPorSku.size} SKUs)...`);
+      log(`Actualizando stock en Shopify (${stockPorId.size} productos)...`);
       await actualizarStockShopify({
         STORE: process.env.SHOPIFY_STORE,
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
-      }, stockPorSku);
+      }, stockPorId);
     } catch (e) {
       log('⚠️ No se pudo actualizar Shopify: ' + e.message);
     }
