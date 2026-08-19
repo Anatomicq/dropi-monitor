@@ -1,5 +1,5 @@
-/** EXPLORADOR (solo lectura): descubre cómo buscar productos en el catálogo de Dropi.
- *  Usa la cuenta del monitor (DROPI_EMAIL / DROPI_PASSWORD). Prueba varios endpoints y muestra qué responde. */
+/** EXPLORADOR v2 (solo lectura): usa el endpoint POST products/index y vuelca la estructura completa
+ *  de un resultado para encontrar stock, proveedor e imagen. Cuenta total de resultados. */
 const EMAIL = process.env.DROPI_EMAIL, PASSWORD = process.env.DROPI_PASSWORD;
 function apiHeaders(token) {
   return { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json', 'Content-Type': 'application/json',
@@ -11,38 +11,42 @@ function apiHeaders(token) {
 async function login() {
   const res = await fetch('https://api-v2.dropi.co/bff/auth/core/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ email: EMAIL, password: PASSWORD, white_brand_id: 1, brand: '', ipAddress: '', otp: null, with_cdc: false }) });
   const j = await res.json().catch(() => ({}));
-  const token = j && j.data && j.data.token;
-  if (!token) throw new Error('Login falló: ' + JSON.stringify(j).slice(0, 200));
-  return token;
+  return j.data.token;
 }
-async function probe(method, url, token, body) {
-  try {
-    const opt = { method, headers: apiHeaders(token) };
-    if (body) opt.body = JSON.stringify(body);
-    const r = await fetch(url, opt);
-    const txt = await r.text();
-    let j = null; try { j = JSON.parse(txt); } catch {}
-    let resumen = txt.slice(0, 160);
-    if (j) {
-      const arr = j.objects || j.data || j.products || (Array.isArray(j) ? j : null);
-      const n = Array.isArray(arr) ? arr.length : (arr && arr.data && Array.isArray(arr.data) ? arr.data.length : '?');
-      const sample = Array.isArray(arr) && arr[0] ? Object.keys(arr[0]).slice(0, 12).join(',') : '';
-      resumen = `isSuccess=${j.isSuccess} count=${j.count} items=${n} keys0=[${sample}]`;
-    }
-    console.log(`\n[${r.status}] ${method} ${url}${body ? ' body=' + JSON.stringify(body) : ''}\n   → ${resumen}`);
-    return { status: r.status, j };
-  } catch (e) { console.log(`\n[ERR] ${method} ${url} → ${e.message}`); return {}; }
+async function search(t, body) {
+  const r = await fetch('https://api.dropi.co/api/products/index', { method: 'POST', headers: apiHeaders(t), body: JSON.stringify(body) });
+  return r.json();
 }
 (async () => {
-  console.log('Login...'); const t = await login(); console.log('Login OK.\n=== Probando endpoints de búsqueda de catálogo ===');
-  const q = 'serum';
-  await probe('GET', `https://api.dropi.co/api/products/productlist/v1/?textToSearch=${q}&pageSize=5&startData=0`, t);
-  await probe('GET', `https://api.dropi.co/api/products/productlist/v1?textToSearch=${q}&pageSize=5`, t);
-  await probe('GET', `https://api.dropi.co/api/products/productlist/v1/index?textToSearch=${q}&pageSize=5`, t);
-  await probe('POST', `https://api.dropi.co/api/products/index`, t, { pageSize: 5, startData: 0, textToSearch: q });
-  await probe('POST', `https://api.dropi.co/api/products/productlist/v1/index`, t, { pageSize: 5, startData: 0, textToSearch: q });
-  await probe('GET', `https://api.dropi.co/api/products/productlist/v1/?keywords=${q}&pageSize=5`, t);
-  await probe('POST', `https://api.dropi.co/api/products/productlist/v1`, t, { pageSize: 5, startData: 0, textToSearch: q, orderBy: 'id', orderDirection: 'desc' });
-  await probe('GET', `https://api.dropi.co/api/products?search=${q}&pageSize=5`, t);
+  const t = await login(); console.log('Login OK.\n');
+  // 1) Buscar un término común y ver cuántos hay + estructura
+  const term = 'kinoki';
+  let j = await search(t, { pageSize: 5, startData: 0, textToSearch: term });
+  const objs = j.objects || [];
+  console.log(`Búsqueda "${term}": count=${j.count} | traídos=${objs.length}`);
+  console.log('\n=== TODAS las llaves del primer resultado ===');
+  if (objs[0]) console.log(Object.keys(objs[0]).join(', '));
+  console.log('\n=== Primer resultado (campos clave) ===');
+  if (objs[0]) {
+    const o = objs[0];
+    console.log('name:', o.name);
+    console.log('sku:', o.sku, '| type:', o.type, '| active:', o.active);
+    console.log('sale_price:', o.sale_price, '| suggested_price:', o.suggested_price);
+    console.log('user_id:', o.user_id);
+    console.log('user (proveedor):', o.user ? JSON.stringify({ id: o.user.id, name: o.user.name, surname: o.user.surname, store: o.user.store_name }) : '(no viene user)');
+    console.log('stock (raíz):', o.stock);
+    console.log('warehouse_product:', o.warehouse_product ? JSON.stringify(o.warehouse_product).slice(0, 300) : '(no)');
+    console.log('variations:', Array.isArray(o.variations) ? o.variations.length + ' variaciones' : '(no)');
+    console.log('gallery:', o.gallery ? JSON.stringify(o.gallery).slice(0, 250) : '(no)');
+    console.log('description (primeros 120):', String(o.description || '').replace(/<[^>]+>/g, ' ').slice(0, 120));
+    console.log('categories:', o.categories ? JSON.stringify(o.categories) : '(no)');
+  }
+  // 2) Ver los 5 resultados resumidos (para ver proveedores distintos y stock)
+  console.log('\n=== 5 resultados (resumen) ===');
+  objs.forEach((o, i) => {
+    const stock = o.stock != null ? o.stock : (o.warehouse_product && o.warehouse_product[0] ? o.warehouse_product[0].stock : '?');
+    const prov = o.user ? (o.user.store_name || (o.user.name + ' ' + (o.user.surname || ''))) : ('user_id ' + o.user_id);
+    console.log(`  ${i + 1}. id:${o.id} | ${String(o.name).slice(0, 40)} | prov:${prov} | stock:${stock} | $${o.sale_price}`);
+  });
   console.log('\n=== FIN ===');
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });
