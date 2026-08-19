@@ -82,4 +82,24 @@ async function buscarCandidatos(t, nombre) {
   }
   fs.writeFileSync('sustitutos-resultado.json', JSON.stringify(out, null, 2));
   console.log(`\n✅ LISTO. ${out.length} productos | con al menos 1 sustituto: ${conSust} | sin sustituto: ${out.length - conSust}`);
+
+  // Escribir en el Google Sheet (pestaña "Sustitutos") vía el mismo webapp del monitor.
+  const WEBAPP = process.env.SHEETS_WEBAPP_URL, SECRET = process.env.SHEETS_SECRET || '';
+  if (WEBAPP) {
+    const enc = [['Mi producto', 'SKU', 'Mi stock', 'Mi proveedor',
+      'Sustituto 1', 'Proveedor 1', 'Stock 1', 'Precio 1',
+      'Sustituto 2', 'Proveedor 2', 'Stock 2', 'Precio 2',
+      'Sustituto 3', 'Proveedor 3', 'Stock 3', 'Precio 3']];
+    for (const o of out) {
+      const s = o.sustitutos || [];
+      const cel = i => s[i] ? [s[i].nombre, s[i].proveedor, s[i].stock, Math.round(Number(s[i].precio) || 0)] : ['', '', '', ''];
+      enc.push([o.producto, o.sku, o.miStock ?? '', o.miProveedor ?? '', ...cel(0), ...cel(1), ...cel(2)]);
+    }
+    const ts = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+    try {
+      const r = await fetch(WEBAPP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: SECRET, tipo: 'sustitutos', timestamp: ts, rows: enc }), redirect: 'follow' });
+      const txt = await r.text(); let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
+      console.log(ok ? '✅ Pestaña "Sustitutos" actualizada en el Sheet.' : '⚠️ Respuesta del Sheet: ' + txt.slice(0, 150));
+    } catch (e) { console.log('⚠️ No pude escribir en el Sheet: ' + e.message); }
+  } else console.log('SHEETS_WEBAPP_URL no configurado; no se escribió en el Sheet.');
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });
