@@ -27,24 +27,32 @@ async function search(t, keywords) {
   const j = await r.json().catch(() => ({}));
   return j.objects || [];
 }
-const STOP = new Set('para con los las una unas unos del una tuyo tuya sin mas más que como este esta estos estas cuerpo mientras desde raiz raíz casa tu su de la el en y a o u por al se lo un x10 x3 x2 kit set'.split(' '));
+const STOP = new Set('para con los las una unas unos del una tuyo tuya sin mas más que como este esta estos estas cuerpo mientras desde raiz raíz casa tu su de la el en y a o u por al se lo un x10 x3 x2'.split(' '));
+// Palabras demasiado genéricas para buscar solas (traen catálogo entero):
+const GENERICAS = new Set('combo kit set pack nuevo nueva oferta promo unidad unidades producto aparato dispositivo mascara'.split(' '));
 function norm(s) { return String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim(); }
-function toks(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)); }
+function singular(w) { return w.length > 4 ? w.replace(/es$/, '').replace(/s$/, '') : w; } // plural simple
+function toks(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)).map(singular); }
 function jaccard(a, b) { const A = new Set(toks(a)), B = new Set(toks(b)); if (!A.size || !B.size) return 0; let i = 0; for (const x of A) if (B.has(x)) i++; return i / (A.size + B.size - i); }
+// Score que pesa MÁS el nombre (identifica el mismo producto) que la descripción larga.
+function score(miNombre, miDesc, cNombre, cDesc) { return 0.7 * jaccard(miNombre, cNombre) + 0.3 * jaccard(miDesc, cDesc); }
 function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w = o.warehouse_product && o.warehouse_product[0]; return w ? Number(w.stock) || 0 : 0; }
 // Busca candidatos: primero con las 2 primeras palabras del nombre Dropi (el tipo de producto),
 // si trae pocas, reintenta con 1 sola palabra. Devuelve lista de candidatos.
 async function buscarCandidatos(t, nombreDropi) {
-  const w = toks(nombreDropi); // en orden; el nombre Dropi suele empezar por el tipo de producto
+  const all = toks(nombreDropi);
+  const buenas = all.filter(w => !GENERICAS.has(w)); // sin palabras ultra-genéricas
+  const base = buenas.length ? buenas : all;
   const intentos = [];
-  if (w.length >= 2) intentos.push(w.slice(0, 2).join(' '));
-  if (w[0]) intentos.push(w[0]);
-  if (w[1]) intentos.push(w[1]);
+  if (base.length >= 2) intentos.push(base.slice(0, 2).join(' '));          // tipo de producto (2 palabras)
+  const larga = [...base].sort((a, b) => b.length - a.length)[0];
+  if (larga) intentos.push(larga);                                          // palabra más específica sola
+  if (base[0]) intentos.push(base[0]);
   let cands = [], usado = '';
   for (const kw of intentos) {
     cands = await search(t, kw); await sleep(350);
     usado = kw;
-    if (cands.length >= 5) break;
+    if (cands.length >= 3) break;
   }
   return { cands, usado };
 }
@@ -55,13 +63,12 @@ async function buscarCandidatos(t, nombreDropi) {
   for (const p of productos) {
     const mio = await show(t, p.dropiId); await sleep(300);
     if (!mio) { console.log(`\n### ${p.titulo.slice(0, 45)} → no se pudo leer en Dropi`); continue; }
-    const miTexto = mio.name + ' ' + mio.description;
     const { cands, usado: kw } = await buscarCandidatos(t, mio.name);
     const todos = cands
       .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
-      .map(c => ({ c, stock: stockDe(c), score: jaccard(miTexto, c.name + ' ' + c.description) }))
+      .map(c => ({ c, stock: stockDe(c), score: score(mio.name, mio.description, c.name, c.description) }))
       .sort((a, b) => b.score - a.score);
-    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.22).slice(0, 3);
+    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.28).slice(0, 3);
     console.log(`\n### ${mio.name.slice(0, 50)}  (mi stock: ${stockDe(mio)}, proveedor: ${mio.user ? (mio.user.name + ' ' + (mio.user.surname || '')) : mio.user_id})`);
     console.log(`   keywords: "${kw}" | candidatos: ${cands.length} | sustitutos válidos: ${scored.length}`);
     scored.forEach((x, i) => console.log(`   OK ${i + 1}. [${Math.round(x.score * 100)}%] ${String(x.c.name).slice(0, 45)} | prov:${x.c.user ? x.c.user.name : x.c.user_id} | stock:${x.stock} | $${x.c.sale_price}`));
