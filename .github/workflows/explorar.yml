@@ -9,8 +9,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Explorar catalogo Dropi
+      - name: Buscar sustitutos
         run: node sustitutos.js
         env:
           DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+      - name: Subir resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sustitutos
+          path: sustitutos-resultado.json
+          if-no-files-found: warn

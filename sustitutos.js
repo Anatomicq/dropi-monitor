@@ -1,9 +1,10 @@
-/** BUSCADOR DE SUSTITUTOS (muestra): para cada producto, busca en el catálogo Dropi el MISMO producto
- *  de OTRO proveedor con stock > 150, emparejando por nombre + descripción. Imprime top 3 con su score. */
+/** BUSCADOR DE SUSTITUTOS (completo): para cada producto, busca en el catálogo Dropi el MISMO producto
+ *  de OTRO proveedor con stock > 150, emparejando por nombre + descripción. Escribe sustitutos-resultado.json. */
 const fs = require('fs');
 const EMAIL = process.env.DROPI_EMAIL, PASSWORD = process.env.DROPI_PASSWORD;
 const MIN_STOCK = 150;
-const SAMPLE = parseInt(process.env.SAMPLE || '8', 10);
+const UMBRAL = 0.40;
+const LIMIT = process.env.SAMPLE ? parseInt(process.env.SAMPLE, 10) : 0; // 0 = todos
 
 function apiHeaders(token) {
   return { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json', 'Content-Type': 'application/json',
@@ -18,63 +19,67 @@ async function login() {
   return (await res.json()).data.token;
 }
 async function show(t, id) {
-  const r = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, { headers: apiHeaders(t) });
-  const j = await r.json().catch(() => ({}));
-  return j.objects || null;
+  for (let i = 0; i < 3; i++) {
+    try { const r = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, { headers: apiHeaders(t) }); if (r.ok) { const j = await r.json(); return j.objects || null; } } catch {}
+    await sleep(3000);
+  }
+  return null;
 }
 async function search(t, keywords) {
-  const r = await fetch('https://api.dropi.co/api/products/index', { method: 'POST', headers: apiHeaders(t), body: JSON.stringify({ pageSize: 100, startData: 0, keywords }) });
-  const j = await r.json().catch(() => ({}));
-  return j.objects || [];
+  for (let i = 0; i < 3; i++) {
+    try { const r = await fetch('https://api.dropi.co/api/products/index', { method: 'POST', headers: apiHeaders(t), body: JSON.stringify({ pageSize: 100, startData: 0, keywords }) }); if (r.ok) { const j = await r.json(); return j.objects || []; } } catch {}
+    await sleep(3000);
+  }
+  return [];
 }
 const STOP = new Set('para con los las una unas unos del una tuyo tuya sin mas más que como este esta estos estas cuerpo mientras desde raiz raíz casa tu su de la el en y a o u por al se lo un x10 x3 x2'.split(' '));
-// Palabras demasiado genéricas para buscar solas (traen catálogo entero):
 const GENERICAS = new Set('combo kit set pack nuevo nueva oferta promo unidad unidades producto aparato dispositivo mascara'.split(' '));
 function norm(s) { return String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim(); }
-function singular(w) { return w.length > 4 ? w.replace(/es$/, '').replace(/s$/, '') : w; } // plural simple
-function palabras(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)); } // SIN stem — para BUSCAR
-function toks(s) { return palabras(s).map(singular); } // CON stem — para PUNTUAR
+function singular(w) { return w.length > 4 ? w.replace(/es$/, '').replace(/s$/, '') : w; }
+function palabras(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)); }
+function toks(s) { return palabras(s).map(singular); }
 function jaccard(a, b) { const A = new Set(toks(a)), B = new Set(toks(b)); if (!A.size || !B.size) return 0; let i = 0; for (const x of A) if (B.has(x)) i++; return i / (A.size + B.size - i); }
-// Score que pesa MÁS el nombre (identifica el mismo producto) que la descripción larga.
-function score(miNombre, miDesc, cNombre, cDesc) { return 0.7 * jaccard(miNombre, cNombre) + 0.3 * jaccard(miDesc, cDesc); }
+function score(mn, md, cn, cd) { return 0.7 * jaccard(mn, cn) + 0.3 * jaccard(md, cd); }
 function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w = o.warehouse_product && o.warehouse_product[0]; return w ? Number(w.stock) || 0 : 0; }
-// Busca candidatos: primero con las 2 primeras palabras del nombre Dropi (el tipo de producto),
-// si trae pocas, reintenta con 1 sola palabra. Devuelve lista de candidatos.
-async function buscarCandidatos(t, nombreDropi) {
-  const all = palabras(nombreDropi);
-  const buenas = all.filter(w => !GENERICAS.has(w));
-  const base = buenas.length ? buenas : all;
-  // Hacemos varias búsquedas y JUNTAMOS los candidatos (más cobertura: singular/plural, sinónimos):
+function prov(o) { return o.user ? (o.user.store_name || ((o.user.name || '') + ' ' + (o.user.surname || '')).trim()) : ('proveedor ' + o.user_id); }
+async function buscarCandidatos(t, nombre) {
+  const all = palabras(nombre); const buenas = all.filter(w => !GENERICAS.has(w)); const base = buenas.length ? buenas : all;
   const terms = new Set();
-  if (base.length >= 2) terms.add(base.slice(0, 2).join(' '));    // el tipo de producto
-  const larga = [...base].sort((a, b) => b.length - a.length)[0];
-  if (larga) terms.add(larga);                                    // la palabra más específica
-  if (base[0]) terms.add(base[0]);                                // la primera palabra
+  if (base.length >= 2) terms.add(base.slice(0, 2).join(' '));
+  const larga = [...base].sort((a, b) => b.length - a.length)[0]; if (larga) terms.add(larga);
+  if (base[0]) terms.add(base[0]);
   const byId = new Map();
-  for (const kw of terms) {
-    const cs = await search(t, kw); await sleep(350);
-    for (const c of cs) if (!byId.has(c.id)) byId.set(c.id, c);
-    if (byId.size > 130) break;
-  }
-  return { cands: [...byId.values()], usado: [...terms].join(' | ') };
+  for (const kw of terms) { const cs = await search(t, kw); await sleep(300); for (const c of cs) if (!byId.has(c.id)) byId.set(c.id, c); if (byId.size > 130) break; }
+  return [...byId.values()];
 }
-
 (async () => {
-  const t = await login(); console.log('Login OK.\n');
-  const productos = JSON.parse(fs.readFileSync('productos.json', 'utf8')).slice(0, SAMPLE);
-  for (const p of productos) {
-    const mio = await show(t, p.dropiId); await sleep(300);
-    if (!mio) { console.log(`\n### ${p.titulo.slice(0, 45)} → no se pudo leer en Dropi`); continue; }
-    const { cands, usado: kw } = await buscarCandidatos(t, mio.name);
-    const todos = cands
-      .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
-      .map(c => ({ c, stock: stockDe(c), score: score(mio.name, mio.description, c.name, c.description) }))
-      .sort((a, b) => b.score - a.score);
-    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.40).slice(0, 3);
-    console.log(`\n### ${mio.name.slice(0, 50)}  (mi stock: ${stockDe(mio)}, proveedor: ${mio.user ? (mio.user.name + ' ' + (mio.user.surname || '')) : mio.user_id})`);
-    console.log(`   keywords: "${kw}" | candidatos: ${cands.length} | sustitutos válidos: ${scored.length}`);
-    scored.forEach((x, i) => console.log(`   OK ${i + 1}. [${Math.round(x.score * 100)}%] ${String(x.c.name).slice(0, 45)} | prov:${x.c.user ? x.c.user.name : x.c.user_id} | stock:${x.stock} | $${x.c.sale_price}`));
-    if (!scored.length && todos[0]) { const b = todos[0]; console.log(`   mejor candidato (no pasa): [${Math.round(b.score * 100)}%] ${String(b.c.name).slice(0, 45)} | stock:${b.stock}`); }
+  const t = await login(); console.log('Login OK.');
+  let productos = JSON.parse(fs.readFileSync('productos.json', 'utf8'));
+  if (LIMIT) productos = productos.slice(0, LIMIT);
+  console.log('Procesando', productos.length, 'productos...');
+  const out = [];
+  let conSust = 0;
+  for (let i = 0; i < productos.length; i++) {
+    const p = productos[i];
+    try {
+      const mio = await show(t, p.dropiId); await sleep(250);
+      if (!mio) { out.push({ producto: p.titulo, sku: p.sku, dropiId: p.dropiId, error: 'no leído en Dropi', sustitutos: [] }); continue; }
+      const cands = await buscarCandidatos(t, mio.name);
+      const scored = cands
+        .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
+        .map(c => ({ c, stock: stockDe(c), s: score(mio.name, mio.description, c.name, c.description) }))
+        .filter(x => x.stock > MIN_STOCK && x.s >= UMBRAL)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 3);
+      if (scored.length) conSust++;
+      out.push({
+        producto: p.titulo, sku: p.sku, dropiId: p.dropiId,
+        nombreDropi: mio.name, miStock: stockDe(mio), miProveedor: prov(mio),
+        sustitutos: scored.map(x => ({ nombre: x.c.name, proveedor: prov(x.c), stock: x.stock, precio: x.c.sale_price, precioSugerido: x.c.suggested_price, dropiId: x.c.id, match: Math.round(x.s * 100) })),
+      });
+    } catch (e) { out.push({ producto: p.titulo, sku: p.sku, dropiId: p.dropiId, error: e.message, sustitutos: [] }); }
+    if ((i + 1) % 20 === 0) console.log(`  ${i + 1}/${productos.length} (con sustituto: ${conSust})`);
   }
-  console.log('\n=== FIN ===');
+  fs.writeFileSync('sustitutos-resultado.json', JSON.stringify(out, null, 2));
+  console.log(`\n✅ LISTO. ${out.length} productos | con al menos 1 sustituto: ${conSust} | sin sustituto: ${out.length - conSust}`);
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });
