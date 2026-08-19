@@ -23,7 +23,7 @@ async function show(t, id) {
   return j.objects || null;
 }
 async function search(t, keywords) {
-  const r = await fetch('https://api.dropi.co/api/products/index', { method: 'POST', headers: apiHeaders(t), body: JSON.stringify({ pageSize: 50, startData: 0, keywords }) });
+  const r = await fetch('https://api.dropi.co/api/products/index', { method: 'POST', headers: apiHeaders(t), body: JSON.stringify({ pageSize: 100, startData: 0, keywords }) });
   const j = await r.json().catch(() => ({}));
   return j.objects || [];
 }
@@ -57,16 +57,15 @@ async function buscarCandidatos(t, nombreDropi) {
     if (!mio) { console.log(`\n### ${p.titulo.slice(0, 45)} → no se pudo leer en Dropi`); continue; }
     const miTexto = mio.name + ' ' + mio.description;
     const { cands, usado: kw } = await buscarCandidatos(t, mio.name);
-    const scored = cands
+    const todos = cands
       .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
       .map(c => ({ c, stock: stockDe(c), score: jaccard(miTexto, c.name + ' ' + c.description) }))
-      .filter(x => x.stock > MIN_STOCK && x.score >= 0.22)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+      .sort((a, b) => b.score - a.score);
+    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.22).slice(0, 3);
     console.log(`\n### ${mio.name.slice(0, 50)}  (mi stock: ${stockDe(mio)}, proveedor: ${mio.user ? (mio.user.name + ' ' + (mio.user.surname || '')) : mio.user_id})`);
-    console.log(`   keywords buscados: "${kw}" | candidatos: ${cands.length} | sustitutos válidos: ${scored.length}`);
-    if (!scored.length) console.log('   (sin sustitutos con +150 stock que coincidan)');
-    scored.forEach((x, i) => console.log(`   ${i + 1}. [${Math.round(x.score * 100)}%] ${String(x.c.name).slice(0, 45)} | prov:${x.c.user ? x.c.user.name : x.c.user_id} | stock:${x.stock} | $${x.c.sale_price}`));
+    console.log(`   keywords: "${kw}" | candidatos: ${cands.length} | sustitutos válidos: ${scored.length}`);
+    scored.forEach((x, i) => console.log(`   OK ${i + 1}. [${Math.round(x.score * 100)}%] ${String(x.c.name).slice(0, 45)} | prov:${x.c.user ? x.c.user.name : x.c.user_id} | stock:${x.stock} | $${x.c.sale_price}`));
+    if (!scored.length && todos[0]) { const b = todos[0]; console.log(`   mejor candidato (no pasa): [${Math.round(b.score * 100)}%] ${String(b.c.name).slice(0, 45)} | stock:${b.stock}`); }
   }
   console.log('\n=== FIN ===');
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });
