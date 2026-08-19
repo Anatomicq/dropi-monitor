@@ -1,0 +1,16 @@
+name: Explorar Catalogo
+on:
+  workflow_dispatch: {}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Explorar catalogo Dropi
+        run: node explorar-catalogo.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
