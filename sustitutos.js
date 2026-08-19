@@ -41,21 +41,22 @@ function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w 
 // Busca candidatos: primero con las 2 primeras palabras del nombre Dropi (el tipo de producto),
 // si trae pocas, reintenta con 1 sola palabra. Devuelve lista de candidatos.
 async function buscarCandidatos(t, nombreDropi) {
-  const all = palabras(nombreDropi); // sin stem, para buscar literal
-  const buenas = all.filter(w => !GENERICAS.has(w)); // sin palabras ultra-genéricas
+  const all = palabras(nombreDropi);
+  const buenas = all.filter(w => !GENERICAS.has(w));
   const base = buenas.length ? buenas : all;
-  const intentos = [];
-  if (base.length >= 2) intentos.push(base.slice(0, 2).join(' '));          // tipo de producto (2 palabras)
+  // Hacemos varias búsquedas y JUNTAMOS los candidatos (más cobertura: singular/plural, sinónimos):
+  const terms = new Set();
+  if (base.length >= 2) terms.add(base.slice(0, 2).join(' '));    // el tipo de producto
   const larga = [...base].sort((a, b) => b.length - a.length)[0];
-  if (larga) intentos.push(larga);                                          // palabra más específica sola
-  if (base[0]) intentos.push(base[0]);
-  let cands = [], usado = '';
-  for (const kw of intentos) {
-    cands = await search(t, kw); await sleep(350);
-    usado = kw;
-    if (cands.length >= 3) break;
+  if (larga) terms.add(larga);                                    // la palabra más específica
+  if (base[0]) terms.add(base[0]);                                // la primera palabra
+  const byId = new Map();
+  for (const kw of terms) {
+    const cs = await search(t, kw); await sleep(350);
+    for (const c of cs) if (!byId.has(c.id)) byId.set(c.id, c);
+    if (byId.size > 130) break;
   }
-  return { cands, usado };
+  return { cands: [...byId.values()], usado: [...terms].join(' | ') };
 }
 
 (async () => {
