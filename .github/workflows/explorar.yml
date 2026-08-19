@@ -10,7 +10,7 @@ jobs:
         with:
           node-version: '20'
       - name: Explorar catalogo Dropi
-        run: node explorar-catalogo.js
+        run: node sustitutos.js
         env:
           DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
