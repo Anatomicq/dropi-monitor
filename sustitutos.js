@@ -32,7 +32,8 @@ const STOP = new Set('para con los las una unas unos del una tuyo tuya sin mas m
 const GENERICAS = new Set('combo kit set pack nuevo nueva oferta promo unidad unidades producto aparato dispositivo mascara'.split(' '));
 function norm(s) { return String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim(); }
 function singular(w) { return w.length > 4 ? w.replace(/es$/, '').replace(/s$/, '') : w; } // plural simple
-function toks(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)).map(singular); }
+function palabras(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)); } // SIN stem — para BUSCAR
+function toks(s) { return palabras(s).map(singular); } // CON stem — para PUNTUAR
 function jaccard(a, b) { const A = new Set(toks(a)), B = new Set(toks(b)); if (!A.size || !B.size) return 0; let i = 0; for (const x of A) if (B.has(x)) i++; return i / (A.size + B.size - i); }
 // Score que pesa MÁS el nombre (identifica el mismo producto) que la descripción larga.
 function score(miNombre, miDesc, cNombre, cDesc) { return 0.7 * jaccard(miNombre, cNombre) + 0.3 * jaccard(miDesc, cDesc); }
@@ -40,7 +41,7 @@ function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w 
 // Busca candidatos: primero con las 2 primeras palabras del nombre Dropi (el tipo de producto),
 // si trae pocas, reintenta con 1 sola palabra. Devuelve lista de candidatos.
 async function buscarCandidatos(t, nombreDropi) {
-  const all = toks(nombreDropi);
+  const all = palabras(nombreDropi); // sin stem, para buscar literal
   const buenas = all.filter(w => !GENERICAS.has(w)); // sin palabras ultra-genéricas
   const base = buenas.length ? buenas : all;
   const intentos = [];
@@ -68,7 +69,7 @@ async function buscarCandidatos(t, nombreDropi) {
       .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
       .map(c => ({ c, stock: stockDe(c), score: score(mio.name, mio.description, c.name, c.description) }))
       .sort((a, b) => b.score - a.score);
-    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.28).slice(0, 3);
+    const scored = todos.filter(x => x.stock > MIN_STOCK && x.score >= 0.40).slice(0, 3);
     console.log(`\n### ${mio.name.slice(0, 50)}  (mi stock: ${stockDe(mio)}, proveedor: ${mio.user ? (mio.user.name + ' ' + (mio.user.surname || '')) : mio.user_id})`);
     console.log(`   keywords: "${kw}" | candidatos: ${cands.length} | sustitutos válidos: ${scored.length}`);
     scored.forEach((x, i) => console.log(`   OK ${i + 1}. [${Math.round(x.score * 100)}%] ${String(x.c.name).slice(0, 45)} | prov:${x.c.user ? x.c.user.name : x.c.user_id} | stock:${x.stock} | $${x.c.sale_price}`));
