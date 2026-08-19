@@ -31,8 +31,23 @@ const STOP = new Set('para con los las una unas unos del una tuyo tuya sin mas m
 function norm(s) { return String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim(); }
 function toks(s) { return norm(s).split(' ').filter(w => w.length > 3 && !STOP.has(w)); }
 function jaccard(a, b) { const A = new Set(toks(a)), B = new Set(toks(b)); if (!A.size || !B.size) return 0; let i = 0; for (const x of A) if (B.has(x)) i++; return i / (A.size + B.size - i); }
-function keywordsDe(nombre) { return [...new Set(toks(nombre))].sort((a, b) => b.length - a.length).slice(0, 3).join(' '); }
 function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w = o.warehouse_product && o.warehouse_product[0]; return w ? Number(w.stock) || 0 : 0; }
+// Busca candidatos: primero con las 2 primeras palabras del nombre Dropi (el tipo de producto),
+// si trae pocas, reintenta con 1 sola palabra. Devuelve lista de candidatos.
+async function buscarCandidatos(t, nombreDropi) {
+  const w = toks(nombreDropi); // en orden; el nombre Dropi suele empezar por el tipo de producto
+  const intentos = [];
+  if (w.length >= 2) intentos.push(w.slice(0, 2).join(' '));
+  if (w[0]) intentos.push(w[0]);
+  if (w[1]) intentos.push(w[1]);
+  let cands = [], usado = '';
+  for (const kw of intentos) {
+    cands = await search(t, kw); await sleep(350);
+    usado = kw;
+    if (cands.length >= 5) break;
+  }
+  return { cands, usado };
+}
 
 (async () => {
   const t = await login(); console.log('Login OK.\n');
@@ -41,12 +56,11 @@ function stockDe(o) { if (o.stock != null) return Number(o.stock) || 0; const w 
     const mio = await show(t, p.dropiId); await sleep(300);
     if (!mio) { console.log(`\n### ${p.titulo.slice(0, 45)} → no se pudo leer en Dropi`); continue; }
     const miTexto = mio.name + ' ' + mio.description;
-    const kw = keywordsDe(mio.name);
-    const cands = await search(t, kw); await sleep(400);
+    const { cands, usado: kw } = await buscarCandidatos(t, mio.name);
     const scored = cands
       .filter(c => c.id !== mio.id && c.user_id !== mio.user_id && c.active && !c.deleted_at)
       .map(c => ({ c, stock: stockDe(c), score: jaccard(miTexto, c.name + ' ' + c.description) }))
-      .filter(x => x.stock > MIN_STOCK && x.score >= 0.30)
+      .filter(x => x.stock > MIN_STOCK && x.score >= 0.22)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
     console.log(`\n### ${mio.name.slice(0, 50)}  (mi stock: ${stockDe(mio)}, proveedor: ${mio.user ? (mio.user.name + ' ' + (mio.user.surname || '')) : mio.user_id})`);
