@@ -1,0 +1,17 @@
+name: Verif Sust
+on: { workflow_dispatch: {} }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Muestra sustitutos
+        run: node sustitutos.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          SAMPLE: '5'
+      - uses: actions/upload-artifact@v4
+        with: { name: verif, path: sustitutos-resultado.json }

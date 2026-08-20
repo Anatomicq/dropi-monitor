@@ -38,3 +38,10 @@ jobs:
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
           SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
           SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+      - name: Respaldo sustitutos (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sustitutos
+          path: sustitutos-resultado.json
+          if-no-files-found: warn
