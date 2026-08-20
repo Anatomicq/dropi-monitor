@@ -87,12 +87,12 @@ async function buscarCandidatos(t, nombre) {
   const WEBAPP = process.env.SHEETS_WEBAPP_URL, SECRET = process.env.SHEETS_SECRET || '';
   if (WEBAPP) {
     const enc = [['Mi producto', 'SKU', 'Mi stock', 'Mi proveedor',
-      'Sustituto 1', 'Proveedor 1', 'Stock 1', 'Precio 1',
-      'Sustituto 2', 'Proveedor 2', 'Stock 2', 'Precio 2',
-      'Sustituto 3', 'Proveedor 3', 'Stock 3', 'Precio 3']];
+      'Sustituto 1', 'ID Dropi 1', 'Proveedor 1', 'Stock 1', 'Precio 1',
+      'Sustituto 2', 'ID Dropi 2', 'Proveedor 2', 'Stock 2', 'Precio 2',
+      'Sustituto 3', 'ID Dropi 3', 'Proveedor 3', 'Stock 3', 'Precio 3']];
     for (const o of out) {
       const s = o.sustitutos || [];
-      const cel = i => s[i] ? [s[i].nombre, s[i].proveedor, s[i].stock, Math.round(Number(s[i].precio) || 0)] : ['', '', '', ''];
+      const cel = i => s[i] ? [s[i].nombre, s[i].dropiId, s[i].proveedor, s[i].stock, Math.round(Number(s[i].precio) || 0)] : ['', '', '', '', ''];
       enc.push([o.producto, o.sku, o.miStock ?? '', o.miProveedor ?? '', ...cel(0), ...cel(1), ...cel(2)]);
     }
     const ts = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
