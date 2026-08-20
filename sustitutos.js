@@ -72,10 +72,19 @@ async function buscarCandidatos(t, nombre) {
         .sort((a, b) => b.s - a.s)
         .slice(0, 3);
       if (scored.length) conSust++;
+      // El buscador no trae el nombre de la TIENDA (solo nombre/apellido de la persona).
+      // Consultamos el detalle de cada sustituto para sacar el proveedor real (store_name).
+      for (const x of scored) {
+        try {
+          const full = await show(t, x.c.id); await sleep(200);
+          const sn = full && full.user && full.user.store_name;
+          x.prov = (sn && sn.trim()) ? sn.trim() : prov(x.c);
+        } catch { x.prov = prov(x.c); }
+      }
       out.push({
         producto: p.titulo, sku: p.sku, dropiId: p.dropiId,
         nombreDropi: mio.name, miStock: stockDe(mio), miProveedor: prov(mio),
-        sustitutos: scored.map(x => ({ nombre: x.c.name, proveedor: prov(x.c), stock: x.stock, precio: x.c.sale_price, precioSugerido: x.c.suggested_price, dropiId: x.c.id, match: Math.round(x.s * 100) })),
+        sustitutos: scored.map(x => ({ nombre: x.c.name, proveedor: x.prov, stock: x.stock, precio: x.c.sale_price, precioSugerido: x.c.suggested_price, dropiId: x.c.id, match: Math.round(x.s * 100) })),
       });
     } catch (e) { out.push({ producto: p.titulo, sku: p.sku, dropiId: p.dropiId, error: e.message, sustitutos: [] }); }
     if ((i + 1) % 20 === 0) console.log(`  ${i + 1}/${productos.length} (con sustituto: ${conSust})`);
