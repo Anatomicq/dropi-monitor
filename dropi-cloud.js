@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { actualizarStockShopify } = require('./actualizar-shopify');
+const { verificarVitrina } = require('./verificar-vitrina');
 const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 
 const EMAIL      = process.env.DROPI_EMAIL;
@@ -290,6 +291,12 @@ async function main() {
       }
       log(`Actualizando stock en Shopify (${stockPorId.size} productos)...`);
       await actualizarStockShopify({
+        STORE: process.env.SHOPIFY_STORE,
+        CID: process.env.SHOPIFY_CLIENT_ID,
+        CS: process.env.SHOPIFY_CLIENT_SECRET,
+      }, stockPorId);
+      // Chequeo de salud: ¿la vitrina publica refleja este inventario? (ver verificar-vitrina.js)
+      await verificarVitrina({
         STORE: process.env.SHOPIFY_STORE,
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
