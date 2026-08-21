@@ -9,6 +9,14 @@
  * Variables de entorno: SHOPIFY_STORE, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET
  */
 const API = '2025-01';
+
+// 2026-08-21: la vitrina de Shopify tiene CONGELADA la proyeccion de inventario
+// (caso para soporte de Shopify): el admin registra el stock bien pero la tienda
+// publica muestra "agotado". Como solucion temporal, las variantes con stock se
+// dejaron SIN seguimiento de inventario para que se muestren disponibles.
+// Mientras este en false, el sync NO reactiva el tracking ni intenta fijarles
+// cantidad (fallaria). Cuando Shopify arregle la vitrina: poner en true.
+const REACTIVAR_TRACKING = false;
 const log = (m) => console.log(`[shopify] ${m}`);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -92,7 +100,10 @@ async function actualizarStockShopify(cfg, stockPorSku) {
     if (v) porBarcode++;
     else { v = bySku.get(clave); if (v) porSku++; }
     if (!v) { sinMatch++; continue; }
-    if (!v.tracked) activarTrack.push(v.id);
+    if (!v.tracked) {
+      if (REACTIVAR_TRACKING) activarTrack.push(v.id);
+      else continue; // sin seguimiento a proposito (ver nota arriba): no fijar cantidad
+    }
     quantities.push({ inventoryItemId: v.id, locationId: loc.id, quantity: Math.max(0, Math.round(Number(cant) || 0)) });
   }
   log(`A actualizar: ${quantities.length} (${porBarcode} por barcode, ${porSku} por SKU) | sin match: ${sinMatch} | activar tracking: ${activarTrack.length}`);
