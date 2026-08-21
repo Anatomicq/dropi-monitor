@@ -10,13 +10,11 @@
  */
 const API = '2025-01';
 
-// 2026-08-21: la vitrina de Shopify tiene CONGELADA la proyeccion de inventario
-// (caso para soporte de Shopify): el admin registra el stock bien pero la tienda
-// publica muestra "agotado". Como solucion temporal, las variantes con stock se
-// dejaron SIN seguimiento de inventario para que se muestren disponibles.
-// Mientras este en false, el sync NO reactiva el tracking ni intenta fijarles
-// cantidad (fallaria). Cuando Shopify arregle la vitrina: poner en true.
-const REACTIVAR_TRACKING = false;
+// El congelamiento de la vitrina (2026-08-20/22) se resolvio; el rastreo de
+// inventario se reactivo en todas las variantes. Si vuelve a pasar (la alerta
+// STRICT_VITRINA avisara), poner temporalmente en false y destrackear las
+// variantes con stock para poder vender mientras soporte lo arregla.
+const REACTIVAR_TRACKING = true;
 const log = (m) => console.log(`[shopify] ${m}`);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

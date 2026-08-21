@@ -24,6 +24,9 @@ jobs:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          # Falla la corrida (y GitHub avisa por correo) si la vitrina publica
+          # no refleja el inventario — ver verificar-vitrina.js
+          STRICT_VITRINA: '1'
       # En la MISMA corrida, actualiza los sustitutos en el mismo Excel (pestaña "Sustitutos").
       # if: always() → corre aunque el paso de stock haya terminado con advertencia.
       - name: Sustitutos → Excel (pestaña Sustitutos)
