@@ -70,11 +70,14 @@ async function consultar(id, token) {
     const o = data.objects;
     const esVariable = Array.isArray(o.variations) && o.variations.length > 0;
 
-    let stock, precioBase, precioSug, wh, nVariaciones = 0;
+    let stock, precioBase, precioSug, wh, nVariaciones = 0, variaciones = null;
     if (esVariable) {
       // Producto con tallas/colores: el stock vive en cada variante → sumarlas.
       nVariaciones = o.variations.length;
       stock = o.variations.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+      // Stock POR VARIACION: la clave para Shopify es el ID de la variacion de Dropi,
+      // que desde agosto 2026 es el SKU de la variante en Shopify.
+      variaciones = o.variations.map(v => ({ id: v.id, stock: Number(v.stock) || 0 }));
       const v0 = o.variations[0] || {};
       precioBase = parseFloat(v0.sale_price || o.sale_price || 0);
       precioSug  = parseFloat(v0.suggested_price || o.suggested_price || 0);
@@ -99,7 +102,7 @@ async function consultar(id, token) {
       precioBase, precioSug,
       proveedor, telefono,
       bodega: wh.name || 'Sin bodega', ciudad: (wh.city && wh.city.name) || '',
-      esVariable, nVariaciones,
+      esVariable, nVariaciones, variaciones,
     };
   } catch (e) {
     return { existe: false, error: e.message };
@@ -276,7 +279,14 @@ async function main() {
       for (let i = 0; i < productos.length; i++) {
         const d = datos[i];
         const id = productos[i].dropiId && String(productos[i].dropiId).trim();
-        if (id && d && d.existe) stockPorId.set(id, d.stock);
+        if (id && d && d.existe) {
+          stockPorId.set(id, d.stock);
+          // Productos variables: ademas una entrada por variacion (id de variacion -> su stock),
+          // que empareja con el SKU de la variante en Shopify.
+          if (Array.isArray(d.variaciones)) {
+            for (const v of d.variaciones) stockPorId.set(String(v.id), v.stock);
+          }
+        }
       }
       log(`Actualizando stock en Shopify (${stockPorId.size} productos)...`);
       await actualizarStockShopify({
