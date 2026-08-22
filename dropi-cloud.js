@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { actualizarStockShopify } = require('./actualizar-shopify');
 const { verificarVitrina } = require('./verificar-vitrina');
+const { reportarKits } = require('./reporte-kits');
 const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 
 const EMAIL      = process.env.DROPI_EMAIL;
@@ -301,6 +302,12 @@ async function main() {
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
       }, stockPorId);
+      // Pestaña "Kits" del Sheet: inventario de los componentes de cada kit (ver reporte-kits.js).
+      await reportarKits({
+        STORE: process.env.SHOPIFY_STORE,
+        CID: process.env.SHOPIFY_CLIENT_ID,
+        CS: process.env.SHOPIFY_CLIENT_SECRET,
+      }, WEBAPP_URL, SECRET);
     } catch (e) {
       log('⚠️ No se pudo actualizar Shopify: ' + e.message);
     }
