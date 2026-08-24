@@ -111,6 +111,54 @@ async function consultar(id, token) {
   }
 }
 
+// Normaliza un teléfono colombiano a formato internacional para wa.me (57XXXXXXXXXX).
+function normalizarTelefonoCO(tel) {
+  let n = String(tel || '').replace(/[^\d]/g, '');
+  if (!n) return '';
+  if (n.startsWith('57') && n.length >= 12) return n;       // ya tiene indicativo
+  n = n.replace(/^0+/, '');                                  // quita ceros a la izquierda
+  if (n.length === 10) return '57' + n;                      // celular CO de 10 dígitos
+  if (n.length >= 12 && n.startsWith('57')) return n;
+  return n.length >= 10 ? '57' + n.slice(-10) : '';          // último recurso
+}
+
+// Construye las alertas: productos con stock ≤ 50 (incluye agotados), cada uno
+// con proveedor, teléfono, mensaje listo y link wa.me de un toque.
+function construirAlertasProveedor(productos, datos) {
+  const UMBRAL = 50;
+  const out = [];
+  for (let i = 0; i < productos.length; i++) {
+    const d = datos[i];
+    if (!d || !d.existe || !d.activo) continue;
+    const stock = Number(d.stock) || 0;
+    if (stock > UMBRAL) continue;
+    const producto = productos[i].titulo || d.nombre || '';
+    const proveedor = d.proveedor || 'proveedor';
+    const estadoStock = stock === 0 ? 'se agotó (0 unidades)' : `está por agotarse (quedan ${stock} unidades)`;
+    const nombreCorto = producto.split(' - ').slice(-1)[0].slice(0, 60);
+    const mensaje =
+      `Hola, buen día. Escribo de la tienda ANATOMICQ. ` +
+      `El producto "${nombreCorto}" ${estadoStock} en Dropi. ` +
+      `¿Van a agregar más stock pronto o ya se va a descontinuar? ` +
+      `Es para saber si sigo promocionándolo o lo reemplazo. ¡Gracias!`;
+    const tel = normalizarTelefonoCO(d.telefono);
+    const waLink = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}` : '';
+    out.push({
+      dropiId: productos[i].dropiId,
+      producto: nombreCorto,
+      proveedor,
+      telefono: d.telefono || '',
+      stock,
+      estado: stock === 0 ? 'AGOTADO' : 'BAJO',
+      waLink,
+      mensaje,
+    });
+  }
+  // Agotados primero, luego por menor stock.
+  out.sort((a, b) => a.stock - b.stock);
+  return out;
+}
+
 function fila(prod, d) {
   let estado = '✅ OK', notas = '';
   if (!d.existe)              { estado = '❌ No encontrado'; notas = d.error; }
@@ -249,6 +297,12 @@ async function main() {
   const timestamp = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
   const payload = JSON.stringify({ secret: SECRET, timestamp, resumen, rows: filas });
 
+  // ── Alertas a proveedor por WhatsApp (stock ≤ 50 o agotado) ──────────────
+  // No envía nada solo: arma un mensaje listo y un link wa.me por producto para
+  // que el dueño lo revise y envíe con un toque desde su propio WhatsApp.
+  const alertas = construirAlertasProveedor(productos, datos);
+  log(`Alertas de proveedor (stock ≤ 50): ${alertas.length}`);
+
   // El web app de Apps Script a veces devuelve una página HTML (no JSON) por un hipo temporal
   // de Google, y eso tumbaba toda la corrida. Reintentamos varias veces antes de rendirnos.
   const INTENTOS_HOJA = 3;
@@ -270,6 +324,19 @@ async function main() {
     if (intento < INTENTOS_HOJA) await sleep(PAUSA_HOJA);
   }
   if (!hojaOK) { log(`❌ No se pudo actualizar la hoja tras ${INTENTOS_HOJA} intentos.`); process.exitCode = 1; }
+
+  // Enviar las alertas de proveedor a su propia pestaña (no toca las demás).
+  try {
+    const rA = await fetch(WEBAPP_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: SECRET, tipo: 'alertas', timestamp, alertas }), redirect: 'follow',
+    });
+    const tA = await rA.text();
+    let okA = false; try { okA = JSON.parse(tA).ok; } catch {}
+    log(okA ? '✅ Pestaña "Alertas Proveedor" actualizada.' : '⚠️ Alertas: respuesta inesperada de la hoja.');
+  } catch (e) {
+    log('⚠️ No se pudieron enviar las alertas de proveedor: ' + e.message);
+  }
 
   // Empujar el MISMO stock a Shopify (emparejando por SKU). Solo productos que existen en Dropi.
   if (process.env.SHOPIFY_STORE) {
