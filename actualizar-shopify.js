@@ -78,6 +78,13 @@ async function actualizarStockShopify(cfg, stockPorSku) {
       if (n.barcode) {
         const b = String(n.barcode).trim();
         if (b) { if (byBarcode.has(b)) dupBarcode++; else byBarcode.set(b, ref); }
+        // Al vincular por la app Dropify, el barcode queda como "idProducto-idVariacion"
+        // (p.ej. 2131722-2111696). Indexamos tambien la parte final (idVariacion)
+        // para que el emparejamiento por variacion siga funcionando.
+        if (b.indexOf('-') !== -1) {
+          const cola = b.slice(b.lastIndexOf('-') + 1).trim();
+          if (cola && cola !== b && !byBarcode.has(cola)) byBarcode.set(cola, ref);
+        }
       }
       if (n.sku) {
         const s = String(n.sku).trim();

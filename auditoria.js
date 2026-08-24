@@ -194,7 +194,11 @@ async function main() {
     comparados++;
     if (d.variable) {
       for (const v of p.variantes) {
-        const st = d.porVariacion[String(v.barcode)];
+        // El barcode puede venir como "idVariacion" o como "idProducto-idVariacion"
+        // (formato que deja la app Dropify al vincular). Normalizar a la cola.
+        const bc = String(v.barcode || '');
+        const claveVar = bc.indexOf('-') !== -1 ? bc.slice(bc.lastIndexOf('-') + 1) : bc;
+        const st = d.porVariacion[claveVar];
         if (st === undefined) { difStock.push({ producto: `${p.titulo} (${v.titulo})`, detalle: `Variante con barcode ${v.barcode} no existe como variación en Dropi ${p.dropiId}` }); continue; }
         if (Number(v.stock) !== st) difStock.push({ producto: `${p.titulo} (${v.titulo})`, detalle: `Shopify=${v.stock} vs Dropi=${st}` });
       }
