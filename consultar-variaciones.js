@@ -9,6 +9,24 @@ const IDS = ['2131722', '1732654', '2002145', '1774055', '256314', '656702', '11
 const EMAIL = process.env.DROPI_EMAIL;
 const PASSWORD = process.env.DROPI_PASSWORD;
 
+// Dropi rechaza peticiones sin cabeceras de navegador (mismas de precios.js).
+function apiHeaders(token) {
+  return {
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/json',
+    'Origin': 'https://app.dropi.co',
+    'Referer': 'https://app.dropi.co/',
+    'Accept-Language': 'es-419',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+    'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
+    'Sec-Fetch-Dest': 'empty',
+  };
+}
+
 async function login() {
   const res = await fetch('https://api-v2.dropi.co/bff/auth/core/login', {
     method: 'POST',
@@ -25,7 +43,7 @@ async function main() {
   const token = await login();
   for (const id of IDS) {
     const res = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, {
-      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+      headers: apiHeaders(token),
     });
     const d = await res.json().catch(() => ({}));
     if (!d.isSuccess || !d.objects) { console.log(`\n=== ${id}: NO ENCONTRADO ===`); continue; }
