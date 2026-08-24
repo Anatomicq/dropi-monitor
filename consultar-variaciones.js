@@ -4,7 +4,10 @@
  * el esquema de emparejamiento con la integracion de Dropi.
  * Se ejecuta a mano (workflow_dispatch en debug-variaciones.yml). No toca nada.
  */
-const IDS = ['2131722', '1732654', '2002145', '1774055', '256314', '656702', '1178596', '1587864', '1584324'];
+// Por defecto: los 9 variables. Se puede sobreescribir con la env IDS (coma-separada).
+const IDS = (process.env.IDS
+  ? process.env.IDS.split(',').map((s) => s.trim()).filter(Boolean)
+  : ['2131722', '1732654', '2002145', '1774055', '256314', '656702', '1178596', '1587864', '1584324']);
 
 const EMAIL = process.env.DROPI_EMAIL;
 const PASSWORD = process.env.DROPI_PASSWORD;
@@ -48,9 +51,10 @@ async function main() {
     const d = await res.json().catch(() => ({}));
     if (!d.isSuccess || !d.objects) { console.log(`\n=== ${id}: NO ENCONTRADO ===`); continue; }
     const o = d.objects;
-    console.log(`\n=== ${id}: ${(o.name || '').slice(0, 60)} ===`);
-    console.log(`producto: sku=${JSON.stringify(o.sku)} barcode=${JSON.stringify(o.barcode)} reference=${JSON.stringify(o.reference)} type=${JSON.stringify(o.type)}`);
     const vars = o.variations || [];
+    const stockTotal = vars.length ? vars.reduce((s, v) => s + (Number(v.stock) || 0), 0) : (Number(o.stock) || 0);
+    console.log(`\n=== ${id}: ${(o.name || '').slice(0, 55)} ===`);
+    console.log(`  TYPE=${o.type} | stock_total=${stockTotal} | nVars=${vars.length} | sku=${JSON.stringify(o.sku)}`);
     console.log(`variaciones: ${vars.length}`);
     for (const v of vars.slice(0, 6)) {
       const attrs = (v.attribute_values || []).map((a) => `${a.attribute_name || a.attribute || '?'}=${a.value}`).join(';');
