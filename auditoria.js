@@ -8,12 +8,13 @@
  * Env: DROPI_EMAIL, DROPI_PASSWORD, SHEETS_WEBAPP_URL, SHEETS_SECRET,
  *      SHOPIFY_STORE, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET
  */
+const { consultarLote } = require('./reintentos');
+
 const EMAIL = process.env.DROPI_EMAIL;
 const PASSWORD = process.env.DROPI_PASSWORD;
 const WEBAPP = process.env.SHEETS_WEBAPP_URL;
 const SECRET = process.env.SHEETS_SECRET || '';
 const STORE = process.env.SHOPIFY_STORE;
-const PAUSA_MS = 350;
 
 const log = (m) => console.log(`[auditoria] ${m}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -120,17 +121,20 @@ async function loginDropi() {
 async function stockDropi(id, token) {
   try {
     const res = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, { headers: apiHeaders(token) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const ra = Number(res.headers.get('retry-after'));
+      return { ok: false, status: res.status, retryAfter: ra > 0 ? ra : null };
+    }
     const d = await res.json();
-    if (!d.isSuccess || !d.objects) return null;
+    if (!d.isSuccess || !d.objects) return { ok: false, permanente: true };
     const o = d.objects;
     if (Array.isArray(o.variations) && o.variations.length) {
       const porVariacion = {};
       for (const v of o.variations) porVariacion[String(v.id)] = Number(v.stock) || 0;
-      return { variable: true, porVariacion, total: Object.values(porVariacion).reduce((a, b) => a + b, 0) };
+      return { ok: true, dato: { variable: true, porVariacion } };
     }
-    return { variable: false, total: Number(o.stock) || 0 };
-  } catch { return null; }
+    return { ok: true, dato: { variable: false, total: Number(o.stock) || 0 } };
+  } catch { return { ok: false }; }
 }
 
 // ── Auditoría ──────────────────────────────────────────────────────────────
@@ -167,31 +171,39 @@ async function main() {
   // 2) STOCK Dropi vs Shopify
   log('Comparando stock Dropi vs Shopify...');
   const tokD = await loginDropi();
-  const difStock = [], sinDropi = [];
-  let comparados = 0;
-  for (const p of prods) {
+  const difStock = [], sinDropi = [], sinConsultar = [];
+  // El ID de Dropi vive en el metafield dropi._dropi_product (igual que el monitor).
+  const aComparar = prods.filter((p) => {
     const esKit = KITS_COLECCIONES.some((k) => p.colecciones.includes(k)) || /^kit\b/i.test(p.titulo);
-    if (esKit) continue; // el stock de kits lo deriva Shopify Bundles
-    // El ID de Dropi vive en el metafield dropi._dropi_product (igual que el monitor).
-    const v0 = p.variantes[0] || {};
-    if (!p.dropiId) { sinDropi.push({ producto: p.titulo, detalle: 'Sin metafield de Dropi (¿producto propio?)' }); continue; }
-    const dropiId = p.dropiId;
-    const d = await stockDropi(dropiId, tokD);
-    await sleep(PAUSA_MS);
-    if (!d) { sinDropi.push({ producto: p.titulo, detalle: `ID ${dropiId} no existe en Dropi` }); continue; }
+    if (esKit) return false; // el stock de kits lo deriva Shopify Bundles
+    if (!p.dropiId) { sinDropi.push({ producto: p.titulo, detalle: 'Sin metafield de Dropi (¿producto propio?)' }); return false; }
+    return true;
+  });
+  const resultados = await consultarLote(aComparar.map((p) => p.dropiId), (id) => stockDropi(id, tokD), log);
+
+  let comparados = 0;
+  for (let i = 0; i < aComparar.length; i++) {
+    const p = aComparar[i];
+    const r = resultados[i];
+    if (!r || !r.ok) {
+      if (r && r.permanente) sinDropi.push({ producto: p.titulo, detalle: `ID ${p.dropiId} no existe en Dropi` });
+      else sinConsultar.push({ producto: p.titulo, detalle: `Dropi no respondió (ID ${p.dropiId})` });
+      continue;
+    }
+    const d = r.dato;
     comparados++;
     if (d.variable) {
       for (const v of p.variantes) {
         const st = d.porVariacion[String(v.barcode)];
-        if (st === undefined) { difStock.push({ producto: `${p.titulo} (${v.titulo})`, detalle: `Variante con barcode ${v.barcode} no existe como variación en Dropi ${dropiId}` }); continue; }
+        if (st === undefined) { difStock.push({ producto: `${p.titulo} (${v.titulo})`, detalle: `Variante con barcode ${v.barcode} no existe como variación en Dropi ${p.dropiId}` }); continue; }
         if (Number(v.stock) !== st) difStock.push({ producto: `${p.titulo} (${v.titulo})`, detalle: `Shopify=${v.stock} vs Dropi=${st}` });
       }
     } else {
-      const st = Number(v0.stock);
+      const st = Number((p.variantes[0] || {}).stock);
       if (st !== d.total) difStock.push({ producto: p.titulo, detalle: `Shopify=${st} vs Dropi=${d.total}` });
     }
   }
-  log(`Stock: ${comparados} comparados, ${difStock.length} diferencias, ${sinDropi.length} sin Dropi.`);
+  log(`Stock: ${comparados} comparados, ${difStock.length} diferencias, ${sinDropi.length} sin Dropi, ${sinConsultar.length} sin respuesta.`);
 
   // 3) Enviar al Sheet
   const fecha = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
@@ -202,6 +214,7 @@ async function main() {
     { titulo: `EN CATEGORÍA PERO EN NINGUNA SUBCATEGORÍA (${madreSinSub.length})`, filas: madreSinSub },
     { titulo: `KITS FUERA DE COLECCIÓN DE KITS (${kitsFueraColeccion.length})`, filas: kitsFueraColeccion },
     { titulo: `SIN PRODUCTO EN DROPI (${sinDropi.length})`, filas: sinDropi },
+    { titulo: `DROPI NO RESPONDIÓ — reintentar otro día (${sinConsultar.length})`, filas: sinConsultar },
   ];
   const r = await fetch(WEBAPP, {
     method: 'POST',

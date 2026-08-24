@@ -7,12 +7,12 @@
  * Variables de entorno: DROPI_EMAIL, DROPI_PASSWORD, SHEETS_WEBAPP_URL, SHEETS_SECRET
  */
 const fs = require('fs');
+const { consultarLote } = require('./reintentos');
 
 const EMAIL = process.env.DROPI_EMAIL;
 const PASSWORD = process.env.DROPI_PASSWORD;
 const WEBAPP = process.env.SHEETS_WEBAPP_URL;
 const SECRET = process.env.SHEETS_SECRET || '';
-const PAUSA_MS = 350;
 
 const log = (m) => console.log(`[precios] ${m}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -49,17 +49,20 @@ async function login() {
 async function precioDe(id, token) {
   try {
     const res = await fetch(`https://api.dropi.co/api/products/productlist/v1/show/?id=${id}`, { headers: apiHeaders(token) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const ra = Number(res.headers.get('retry-after'));
+      return { ok: false, status: res.status, retryAfter: ra > 0 ? ra : null };
+    }
     const data = await res.json();
-    if (!data.isSuccess || !data.objects) return null;
+    if (!data.isSuccess || !data.objects) return { ok: false, permanente: true };
     const o = data.objects;
     if (Array.isArray(o.variations) && o.variations.length) {
       const precios = o.variations.map((v) => parseFloat(v.sale_price || 0)).filter((p) => p > 0);
-      return precios.length ? Math.min(...precios) : null;
+      return { ok: true, dato: precios.length ? Math.min(...precios) : null };
     }
     const p = parseFloat(o.sale_price || 0);
-    return p > 0 ? p : null;
-  } catch { return null; }
+    return { ok: true, dato: p > 0 ? p : null };
+  } catch { return { ok: false }; }
 }
 
 async function main() {
@@ -68,17 +71,17 @@ async function main() {
   log(`Consultando precio de proveedor de ${productos.length} productos...`);
   const token = await login();
 
+  const lista = productos.filter((p) => String(p.dropiId || '').trim());
+  const ids = lista.map((p) => String(p.dropiId).trim());
+  const resultados = await consultarLote(ids, (id) => precioDe(id, token), log);
+
   const filas = [];
   let sinPrecio = 0;
-  for (let i = 0; i < productos.length; i++) {
-    const p = productos[i];
-    const id = String(p.dropiId || '').trim();
-    if (!id) continue;
-    const precio = await precioDe(id, token);
+  for (let i = 0; i < lista.length; i++) {
+    const r = resultados[i];
+    const precio = r && r.ok ? r.dato : null;
     if (precio === null) sinPrecio++;
-    filas.push({ id, nombre: (p.titulo || '').slice(0, 60), precio: precio === null ? '' : Math.round(precio) });
-    if ((i + 1) % 50 === 0) log(`  ${i + 1}/${productos.length}`);
-    await sleep(PAUSA_MS);
+    filas.push({ id: ids[i], nombre: (lista[i].titulo || '').slice(0, 60), precio: precio === null ? '' : Math.round(precio) });
   }
   log(`Listo: ${filas.length} filas (${sinPrecio} sin precio).`);
 
