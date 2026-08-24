@@ -4,10 +4,29 @@ on:
   schedule:
     # Cada hora (GitHub usa UTC; la hora exacta puede correrse unos minutos por carga de GitHub).
     - cron: '0 * * * *'
+    # Analisis de precios: 1 vez al dia, 12:00 Colombia (17:00 UTC) — dispara SOLO el job "precios"
+    - cron: '0 17 * * *'
   workflow_dispatch: {}     # permite ejecutarlo a mano desde la pestaña Actions
 
 jobs:
+  precios:
+    # Analisis de precios del proveedor: 1 vez al dia a las 12:00 Colombia (17:00 UTC)
+    if: github.event.schedule == '0 17 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Precios de proveedor -> Excel (pestaña Análisis de precios)
+        run: node precios.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
+          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
   run:
+    if: github.event.schedule != '0 17 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
