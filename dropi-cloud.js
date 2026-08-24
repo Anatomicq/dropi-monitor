@@ -282,11 +282,15 @@ async function main() {
         const d = datos[i];
         const id = productos[i].dropiId && String(productos[i].dropiId).trim();
         if (id && d && d.existe) {
-          stockPorId.set(id, d.stock);
-          // Productos variables: ademas una entrada por variacion (id de variacion -> su stock),
-          // que empareja con el SKU de la variante en Shopify.
-          if (Array.isArray(d.variaciones)) {
+          if (Array.isArray(d.variaciones) && d.variaciones.length) {
+            // Productos VARIABLES: solo entradas por variacion (id de variacion -> su stock),
+            // que emparejan con el SKU de la variante en Shopify. NO se emite la entrada
+            // por producto: desde 2026-08-23 el barcode de esas variantes lleva el ID del
+            // producto Dropi (para que su integracion las reconozca) y una entrada por
+            // producto escribiria el stock SUMADO en la primera variante via barcode.
             for (const v of d.variaciones) stockPorId.set(String(v.id), v.stock);
+          } else {
+            stockPorId.set(id, d.stock);
           }
         }
       }
