@@ -19,6 +19,9 @@ const STORE = process.env.SHOPIFY_STORE;
 const CID = process.env.SHOPIFY_CLIENT_ID;
 const CS = process.env.SHOPIFY_CLIENT_SECRET;
 const AUTOFIX = process.env.AUDIT_AUTOFIX !== '0';
+// Aviso por correo (via el Apps Script de la hoja, que envia con MailApp):
+const WEBAPP_URL = process.env.SHEETS_WEBAPP_URL;
+const SECRET = process.env.SHEETS_SECRET || '';
 const API = '2025-01';
 const log = (m) => console.log(m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -106,6 +109,7 @@ async function main() {
   const M_TAG_DEL = `mutation($id:ID!,$t:[String!]!){ tagsRemove(id:$id, tags:$t){ userErrors{ message } } }`;
 
   let fallan = 0, arreglados = 0, marcados = 0, desmarcados = 0;
+  const detalles = []; // para el correo de aviso
 
   for (const p of activos) {
     const issues = [];
@@ -210,6 +214,7 @@ async function main() {
     const marcado = tags.includes('revisar');
     if (issues.length) {
       fallan++;
+      detalles.push({ producto: p.title, handle: p.handle, problemas: issues });
       log(`  ❌ ${p.title.slice(0, 64)}`);
       for (const i of issues) log(`       - ${i}`);
       if (!marcado) { try { await gql(t, M_TAG_ADD, { id: p.id, t: ['revisar'] }); marcados++; await sleep(120); } catch {} }
@@ -226,6 +231,31 @@ async function main() {
   log(`Recuperados   : ${desmarcados} (pasaron y se les quitó 'revisar')`);
   log('');
   log("En el panel: Productos -> filtrar por etiqueta 'revisar' para ver los pendientes.");
+
+  // ── correo de aviso: SOLO si hay problemas ──
+  if (fallan > 0 && WEBAPP_URL) {
+    const fecha = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+    try {
+      const r = await fetch(WEBAPP_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
+        body: JSON.stringify({
+          secret: SECRET,
+          auditoria: {
+            fecha,
+            auditados: activos.length,
+            conProblemas: fallan,
+            autoArreglos: arreglados,
+            detalles: detalles.slice(0, 60),
+          },
+        }),
+      });
+      const txt = await r.text();
+      let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
+      log(ok ? '📧 Aviso de auditoría enviado al correo.' : '⚠️ El relay no confirmó el correo: ' + txt.slice(0, 120));
+    } catch (e) { log('⚠️ No se pudo enviar el aviso: ' + e.message); }
+  } else if (fallan === 0) {
+    log('✅ Sin problemas: no se envía correo.');
+  }
 }
 
 main().catch((e) => { console.error('❌ ERROR:', e.message); process.exit(1); });
