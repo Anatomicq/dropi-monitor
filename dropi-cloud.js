@@ -382,15 +382,20 @@ async function main() {
         const d = datos[i];
         const id = productos[i].dropiId && String(productos[i].dropiId).trim();
         if (id && d && d.existe) {
+          // Si el producto esta ARCHIVADO / inactivo / eliminado en Dropi, sus pedidos
+          // fallan en silencio. Forzamos stock 0 en Shopify para que salga AGOTADO
+          // (y cualquier kit que lo use como componente tambien, porque el bundle deriva
+          // su stock del minimo de los componentes). Al desarchivarlo vuelve el stock real.
+          const disponible = d.activo && !d.archivado && !d.eliminado;
           if (Array.isArray(d.variaciones) && d.variaciones.length) {
             // Productos VARIABLES: solo entradas por variacion (id de variacion -> su stock),
             // que emparejan con el SKU de la variante en Shopify. NO se emite la entrada
             // por producto: desde 2026-08-23 el barcode de esas variantes lleva el ID del
             // producto Dropi (para que su integracion las reconozca) y una entrada por
             // producto escribiria el stock SUMADO en la primera variante via barcode.
-            for (const v of d.variaciones) stockPorId.set(String(v.id), v.stock);
+            for (const v of d.variaciones) stockPorId.set(String(v.id), disponible ? v.stock : 0);
           } else {
-            stockPorId.set(id, d.stock);
+            stockPorId.set(id, disponible ? d.stock : 0);
           }
         }
       }
