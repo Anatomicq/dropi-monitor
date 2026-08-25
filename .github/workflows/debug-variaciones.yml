@@ -18,4 +18,4 @@ jobs:
           DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
           # 4 ocultos + muestra de combos x2/x3 (deja vacío para volver a los 9 variables)
-          IDS: '1841873,343664,529549,1997436'
+          IDS: '2088423'
