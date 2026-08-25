@@ -154,8 +154,41 @@ function construirAlertasProveedor(productos, datos) {
       mensaje,
     });
   }
-  // Agotados primero, luego por menor stock.
-  out.sort((a, b) => a.stock - b.stock);
+  // Productos que NO SE PUEDEN DESPACHAR (archivado/inactivo/eliminado/no existe):
+  // sus pedidos fallan en silencio en Dropi. Es lo más crítico de revisar.
+  for (let i = 0; i < productos.length; i++) {
+    const d = datos[i];
+    let motivo = '';
+    if (!d || !d.existe) motivo = 'no existe en Dropi';
+    else if (d.eliminado) motivo = 'eliminado en Dropi';
+    else if (d.archivado) motivo = 'ARCHIVADO por el proveedor';
+    else if (!d.activo) motivo = 'inactivo en Dropi';
+    else continue; // se puede despachar
+    const producto = productos[i].titulo || (d && d.nombre) || '';
+    const nombreCorto = producto.split(' - ').slice(-1)[0].slice(0, 60);
+    const proveedor = (d && d.proveedor) || '';
+    const mensaje =
+      `Hola, buen día. Escribo de la tienda ANATOMICQ. ` +
+      `El producto "${nombreCorto}" aparece ${motivo} en Dropi, ` +
+      `por eso mis pedidos de ese producto no se pueden procesar. ` +
+      `¿Lo pueden reactivar/desarchivar, o me confirman si ya se descontinuó? ¡Gracias!`;
+    const tel = normalizarTelefonoCO(d && d.telefono);
+    const waLink = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}` : '';
+    out.push({
+      dropiId: productos[i].dropiId,
+      producto: nombreCorto,
+      proveedor,
+      telefono: (d && d.telefono) || '',
+      stock: (d && d.existe) ? (Number(d.stock) || 0) : '—',
+      estado: 'NO DESPACHA',
+      motivo,
+      waLink,
+      mensaje,
+    });
+  }
+  // Orden: primero los NO DESPACHA (críticos), luego agotados, luego menor stock.
+  const rank = (x) => (x.estado === 'NO DESPACHA' ? -1 : Number(x.stock) || 0);
+  out.sort((a, b) => rank(a) - rank(b));
   return out;
 }
 
