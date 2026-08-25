@@ -1,0 +1,67 @@
+[
+  {
+    "categoria": "skincare",
+    "nombre": "Piel y Belleza",
+    "subs": [
+      "envejecimiento-facial-arrugas-flacidez-papada-ojeras",
+      "manchas-e-hiperpigmentacion",
+      "acne-poros-y-piel-grasa",
+      "piel-seca-e-hidratacion",
+      "celulitis-flacidez-corporal-y-estrias",
+      "cuidado-corporal-y-detalles-vello-unas-venas-callos",
+      "salud-dental-y-sonrisa"
+    ]
+  },
+  {
+    "categoria": "capilar",
+    "nombre": "Capilar",
+    "subs": [
+      "tratamiento-capilar",
+      "herramientas-de-estilizado"
+    ]
+  },
+  {
+    "categoria": "control-de-peso",
+    "nombre": "Peso y Metabolismo",
+    "subs": [
+      "sobrepeso-y-quema-de-grasa",
+      "digestion-hinchazon-y-detox",
+      "salud-hormonal-femenina",
+      "salud-hormonal-masculina-y-vitalidad"
+    ]
+  },
+  {
+    "categoria": "fitness-en-casa",
+    "nombre": "Fitness y Rendimiento",
+    "subs": [
+      "fuerza",
+      "cardiovascular",
+      "suplementos-y-proteinas",
+      "flexibilidad"
+    ]
+  },
+  {
+    "categoria": "recuperacion-muscular",
+    "nombre": "Dolor y Movilidad",
+    "subs": [
+      "migrana-dolor-de-cabeza",
+      "cuello-y-cervical",
+      "articular-rodilla-hombro-codo-tobillo-y-rigidez",
+      "espalda-lumbar-y-postura",
+      "manos-dedos-y-muneca",
+      "muscular-post-ejercicio-y-calambres",
+      "circulacion-y-piernas-cansadas",
+      "medicion-y-monitoreo-de-salud"
+    ]
+  },
+  {
+    "categoria": "sueno-y-descanso",
+    "nombre": "Sueño y Calma",
+    "subs": [
+      "insomnio-mal-sueno",
+      "ansiedad-y-estres",
+      "ronquidos",
+      "ambiente-y-relajacion"
+    ]
+  }
+]

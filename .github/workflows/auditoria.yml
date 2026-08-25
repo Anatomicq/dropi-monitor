@@ -1,26 +1,23 @@
-name: Auditoria Dropi-Shopify
-# Auditoría 3 vías + jerarquía de categorías → pestaña "Auditoría" del Sheet.
-# Lunes 7:00 Colombia (12:00 UTC) y manual.
+name: Auditoria de Productos
+
 on:
   schedule:
-    - cron: '0 12 * * 1'
-  workflow_dispatch: {}
+    # Bogota = UTC-5. Dos corridas al dia.
+    - cron: '0 16 * * *'   # 11:00 am Bogota
+    - cron: '0 22 * * *'   # 05:00 pm Bogota
+  workflow_dispatch: {}     # permite correrla a mano desde la pestana Actions
 
 jobs:
-  auditoria:
+  auditar:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Auditoria -> Excel (pestaña Auditoría)
-        run: node auditoria.js
+      - name: Auditar productos
+        run: node auditar-productos.js
         env:
-          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
-          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
-          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
-          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
