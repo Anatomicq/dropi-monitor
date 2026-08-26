@@ -65,3 +65,14 @@ jobs:
           name: sustitutos
           path: sustitutos-resultado.json
           if-no-files-found: warn
+      # Chequeo de SKUs: el SKU es la llave con la que Dropi empareja los pedidos.
+      # El 2026-08-26 un proceso no identificado borro 45 SKUs y los pedidos de esos
+      # productos habrian fallado en silencio. Si alguna variante pierde su SKU,
+      # este paso falla la corrida y GitHub avisa por correo. Ver verificar-skus.js
+      - name: Verificar SKUs (avisa por correo si alguno desaparece)
+        if: always()
+        run: node verificar-skus.js
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
