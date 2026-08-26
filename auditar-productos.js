@@ -85,6 +85,7 @@ async function main() {
   const Q = `query($c:String){ products(first:50, after:$c){ pageInfo{hasNextPage endCursor}
     edges{ node{
       id title handle status tags productType onlineStoreUrl
+      resourcePublicationsV2(first:10){ edges{ node{ publication{ name } isPublished } } }
       description
       seo{ title }
       featuredMedia{ id }
@@ -104,11 +105,21 @@ async function main() {
   const activos = prods.filter((p) => p.status === 'ACTIVE');
   log(`Productos: ${prods.length} (activos: ${activos.length}; los borradores no se auditan)`);
 
+  // Canal del asesor con IA: sin esto el chat no ve el producto.
+  const M_PUBLICAR = `mutation($id:ID!,$p:[PublicationInput!]!){ publishablePublish(id:$id, input:$p){ userErrors{ message } } }`;
+  let pubHeadless = null;
+  try {
+    const dp = await gql(t, `{ publications(first:20){ edges{ node{ id name } } } }`);
+    const enc = dp.publications.edges.find((e) => /headless/i.test(e.node.name));
+    if (enc) pubHeadless = enc.node.id;
+  } catch {}
+  log(pubHeadless ? 'Canal del asesor detectado.' : '⚠️ No encontré el canal del asesor (Headless).');
+
   const M_UPD = `mutation($in:ProductInput!){ productUpdate(input:$in){ product{ id } userErrors{ message } } }`;
   const M_TAG_ADD = `mutation($id:ID!,$t:[String!]!){ tagsAdd(id:$id, tags:$t){ userErrors{ message } } }`;
   const M_TAG_DEL = `mutation($id:ID!,$t:[String!]!){ tagsRemove(id:$id, tags:$t){ userErrors{ message } } }`;
 
-  let fallan = 0, arreglados = 0, marcados = 0, desmarcados = 0;
+  let fallan = 0, arreglados = 0, marcados = 0, desmarcados = 0, publicados = 0;
   const detalles = []; // para el correo de aviso
 
   for (const p of activos) {
@@ -178,6 +189,27 @@ async function main() {
     if (!p.description || p.description.trim().length < 40) issues.push('descripción vacía o muy corta');
     if (!p.featuredMedia) issues.push('sin imagen');
     if (!p.onlineStoreUrl) issues.push('no publicado en la tienda online');
+    // El asesor con IA lee por Storefront API del canal "Anatomicq Headless":
+    // un producto fuera de ese canal existe en la tienda pero es INVISIBLE
+    // para el chat, así que nunca lo puede ofrecer.
+    const canales = (p.resourcePublicationsV2?.edges || [])
+      .filter((e) => e.node.isPublished)
+      .map((e) => e.node.publication.name);
+    const faltaHeadless = !canales.some((c) => /headless/i.test(c));
+    if (faltaHeadless) {
+      if (AUTOFIX && pubHeadless) {
+        try {
+          await gql(t, M_PUBLICAR, { id: p.id, p: [{ publicationId: pubHeadless }] });
+          publicados++;
+          log(`  📡 ${p.title.slice(0, 58)} -> publicado en el canal del asesor`);
+          await sleep(150);
+        } catch (e) {
+          issues.push('no se pudo publicar en el canal del asesor: ' + e.message.slice(0, 60));
+        }
+      } else {
+        issues.push('no publicado en el canal del asesor (Anatomicq Headless): el chat no puede ofrecerlo');
+      }
+    }
     for (const v of vars) {
       if (!(parseFloat(v.price) > 0)) { issues.push('precio en 0'); break; }
       if (v.compareAtPrice && parseFloat(v.compareAtPrice) <= parseFloat(v.price)) { issues.push('precio "antes" menor o igual al precio actual (descuento falso)'); break; }
@@ -228,7 +260,55 @@ async function main() {
   log(`Auditados     : ${activos.length}`);
   log(`Con problemas : ${fallan}  (etiquetados 'revisar': +${marcados} nuevos)`);
   log(`Auto-arreglos : ${arreglados}`);
+  log(`Publicados al canal del asesor: ${publicados}`);
   log(`Recuperados   : ${desmarcados} (pasaron y se les quitó 'revisar')`);
+  // ── colecciones: canal del asesor + imagen para la tarjeta "Entra Aqui" ──
+  const problemasColecciones = [];
+  try {
+    const QC = `query($c:String){ collections(first:100, after:$c){ pageInfo{hasNextPage endCursor}
+      edges{ node{ id title handle image{ url } productsCount{ count }
+        resourcePublicationsV2(first:10){ edges{ node{ publication{ name } isPublished } } } } } } }`;
+    let curC = null, pgC = 0;
+    do {
+      const dc = await gql(t, QC, { c: curC });
+      for (const e of dc.collections.edges) {
+        const c = e.node;
+        if (c.productsCount && c.productsCount.count === 0) continue; // vacías: no molestan
+        const cans = (c.resourcePublicationsV2?.edges || [])
+          .filter((x) => x.node.isPublished)
+          .map((x) => x.node.publication.name);
+        const problemas = [];
+        if (!cans.some((x) => /headless/i.test(x))) {
+          if (AUTOFIX && pubHeadless) {
+            try {
+              await gql(t, M_PUBLICAR, { id: c.id, p: [{ publicationId: pubHeadless }] });
+              publicados++;
+              log(`  📡 colección ${c.title} -> publicada en el canal del asesor`);
+              await sleep(150);
+            } catch (err) { problemas.push('no se pudo publicar en el canal del asesor'); }
+          } else {
+            problemas.push('no publicada en el canal del asesor (el chat no la puede sugerir)');
+          }
+        }
+        if (!c.image) problemas.push('sin imagen: la tarjeta "Entra Aquí" del asesor saldría sin foto');
+        if (problemas.length) problemasColecciones.push({ producto: `[colección] ${c.title}`, handle: c.handle, problemas });
+      }
+      curC = dc.collections.pageInfo.hasNextPage ? dc.collections.pageInfo.endCursor : null;
+      pgC++;
+    } while (curC && pgC < 10);
+  } catch (e) { log('⚠️ No se pudieron auditar las colecciones: ' + e.message); }
+
+  if (problemasColecciones.length) {
+    log('');
+    log(`Colecciones con problemas: ${problemasColecciones.length}`);
+    for (const c of problemasColecciones) {
+      log(`  ❌ ${c.producto}`);
+      for (const i of c.problemas) log(`       - ${i}`);
+    }
+    detalles.push(...problemasColecciones);
+    fallan += problemasColecciones.length;
+  }
+
   log('');
   log("En el panel: Productos -> filtrar por etiqueta 'revisar' para ver los pendientes.");
 
