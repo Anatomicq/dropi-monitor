@@ -400,13 +400,30 @@ async function main() {
   log("En el panel: Productos -> filtrar por etiqueta 'revisar' para ver los pendientes.");
 
   // ── correo de aviso: SOLO si hay problemas ──
-  if (fallan > 0 && WEBAPP_URL) {
+  //
+  // ⚠️ SEGURIDAD: el doPost del Apps Script despacha por body.tipo y CUALQUIER
+  // payload que no reconozca cae al manejador por defecto, que hace sh.clear()
+  // sobre la pestaña "Inventario Dropi" ANTES de mirar si vienen filas. Es decir:
+  // mandar este aviso a una versión del script que aún no tenga el manejador
+  // `body.auditoria` BORRARÍA el inventario de la hoja.
+  // Por eso el envío exige AUDIT_EMAIL=1, que solo debe activarse en el workflow
+  // DESPUÉS de desplegar la versión del Apps Script que maneja body.auditoria.
+  const correoHabilitado = process.env.AUDIT_EMAIL === '1';
+  if (fallan > 0 && WEBAPP_URL && !correoHabilitado) {
+    log('');
+    log('📧 Aviso por correo DESACTIVADO (AUDIT_EMAIL != 1).');
+    log('   Se activa cuando el Apps Script tenga desplegado el manejador body.auditoria;');
+    log('   enviarlo antes borraría la pestaña "Inventario Dropi".');
+  }
+  if (fallan > 0 && WEBAPP_URL && correoHabilitado) {
     const fecha = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
     try {
       const r = await fetch(WEBAPP_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, redirect: 'follow',
         body: JSON.stringify({
           secret: SECRET,
+          // 'tipo' explícito: el doPost del Apps Script despacha por este campo.
+          tipo: 'auditoria-correo',
           auditoria: {
             fecha,
             auditados: activos.length,
