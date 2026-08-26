@@ -100,6 +100,10 @@ async function consultar(id, token) {
 
     return {
       existe: true, nombre: o.name, stock,
+      privado: !!o.privated_product,
+      stockPrivado: (Array.isArray(o.variations) && o.variations.length)
+        ? o.variations.reduce((s, v) => s + (Number(v.private_product_inventories_rest) || 0), 0)
+        : (Number(o.private_product_inventories_rest) || 0),
       activo: !!o.active, archivado: !!o.archived, aceptaPedidos: !!o.orders, eliminado: o.deleted_at != null,
       precioBase, precioSug,
       proveedor, telefono,
@@ -204,6 +208,8 @@ function fila(prod, d) {
   if (d.esVariable) notas = (notas ? notas + ' | ' : '') + 'Variable: ' + d.nVariaciones + ' variantes (stock sumado)';
   return [
     prod.dropiId, prod.sku, prod.titulo, d.existe ? d.nombre : '—', d.existe ? d.stock : '—',
+    d.existe ? (d.privado ? 'Privado' : 'Público') : '—',
+    d.existe ? (Number(d.stockPrivado) || 0) : 0,
     d.existe ? (d.activo ? 'Sí' : 'No') : '—',
     d.existe ? (d.archivado ? 'Sí' : 'No') : '—',
     prod.shopifyStatus,
@@ -236,7 +242,7 @@ async function main() {
   const token = await login();
   log('Login OK. Consultando productos...');
 
-  const encabezados = ['ID Dropi','SKU Shopify','Producto Shopify','Nombre en Dropi','Stock','Activo',
+  const encabezados = ['ID Dropi','SKU Shopify','Producto Shopify','Nombre en Dropi','Stock','Privado/Público','Stock Privado','Activo',
     'Archivado','Estado Shopify','Proveedor','WhatsApp','Bodega','Ciudad',
     'Precio Base','Precio Sugerido','Estado General','Notas'];
 
