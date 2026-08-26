@@ -1,0 +1,17 @@
+name: Debug privado Dropi
+on:
+  workflow_dispatch: {}
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Volcar campos privados
+        run: node debug-privado.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          IDS: '2131722,1732654,2088423,1892231,820064,797186,1515162,2168890,2184575,1929828'
