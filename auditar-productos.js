@@ -19,6 +19,11 @@ const STORE = process.env.SHOPIFY_STORE;
 const CID = process.env.SHOPIFY_CLIENT_ID;
 const CS = process.env.SHOPIFY_CLIENT_SECRET;
 const AUTOFIX = process.env.AUDIT_AUTOFIX !== '0';
+// Margen mínimo aceptable sobre el precio de venta (%). Ajustable por variable
+// de entorno sin tocar el código: AUDIT_MARGEN=35
+const MARGEN_MINIMO = Number(process.env.AUDIT_MARGEN || 25);
+// Días que un borrador puede quedarse sin publicar antes de avisar.
+const DIAS_BORRADOR = Number(process.env.AUDIT_DIAS_BORRADOR || 14);
 // Aviso por correo (via el Apps Script de la hoja, que envia con MailApp):
 const WEBAPP_URL = process.env.SHEETS_WEBAPP_URL;
 const SECRET = process.env.SHEETS_SECRET || '';
@@ -84,13 +89,13 @@ async function main() {
 
   const Q = `query($c:String){ products(first:50, after:$c){ pageInfo{hasNextPage endCursor}
     edges{ node{
-      id title handle status tags productType onlineStoreUrl
+      id title handle status tags productType onlineStoreUrl createdAt
       resourcePublicationsV2(first:10){ edges{ node{ publication{ name } isPublished } } }
       description
       seo{ title }
       featuredMedia{ id }
       options{ name values }
-      variants(first:50){ edges{ node{ sku barcode price compareAtPrice inventoryItem{ tracked } } } }
+      variants(first:50){ edges{ node{ sku barcode price compareAtPrice inventoryItem{ tracked unitCost{ amount } } } } }
       collections(first:40){ edges{ node{ handle } } }
     } } } }`;
 
@@ -216,6 +221,23 @@ async function main() {
       if (v.inventoryItem && v.inventoryItem.tracked === false) { issues.push('inventario sin rastrear'); break; }
     }
 
+    // ── margen sobre el costo de Dropi (lo carga el monitor 5x/día) ──
+    for (const v of vars) {
+      const costo = v.inventoryItem?.unitCost ? Number(v.inventoryItem.unitCost.amount) : null;
+      const precio = parseFloat(v.price);
+      if (!costo || !(costo > 0) || !(precio > 0)) continue;
+      const margen = ((precio - costo) / precio) * 100;
+      const fmt = (n) => '$' + Math.round(n).toLocaleString('es-CO');
+      if (precio <= costo) {
+        issues.push(`VENDE A PÉRDIDA o sin ganancia: precio ${fmt(precio)} vs costo ${fmt(costo)}`);
+        break;
+      }
+      if (margen < MARGEN_MINIMO) {
+        issues.push(`margen bajo: ${margen.toFixed(0)}% (precio ${fmt(precio)}, costo ${fmt(costo)}) — mínimo esperado ${MARGEN_MINIMO}%`);
+        break;
+      }
+    }
+
     // ── colores ──
     for (const o of p.options || []) {
       if (/^(color|colores|colour)$/i.test(o.name)) {
@@ -262,6 +284,66 @@ async function main() {
   log(`Auto-arreglos : ${arreglados}`);
   log(`Publicados al canal del asesor: ${publicados}`);
   log(`Recuperados   : ${desmarcados} (pasaron y se les quitó 'revisar')`);
+  // ── duplicados: mismo código de barras o título casi idéntico ──
+  const porBarcode = new Map();
+  const porTitulo = new Map();
+  const normTit = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const p of prods) {
+    if (p.status === 'ARCHIVED') continue;
+    for (const e of p.variants.edges) {
+      const bc = (e.node.barcode || '').trim();
+      if (!bc) continue;
+      if (!porBarcode.has(bc)) porBarcode.set(bc, new Set());
+      porBarcode.get(bc).add(p.title);
+    }
+    const k = normTit(p.title);
+    if (!k) continue;
+    if (!porTitulo.has(k)) porTitulo.set(k, []);
+    porTitulo.get(k).push(`[${p.status}] ${p.title}`);
+  }
+  const dupBar = [...porBarcode.entries()].filter(([, s]) => s.size > 1);
+  const dupTit = [...porTitulo.entries()].filter(([, a]) => a.length > 1);
+  if (dupBar.length || dupTit.length) {
+    log('');
+    log(`Duplicados detectados: ${dupBar.length} por código de barras, ${dupTit.length} por título`);
+    for (const [bc, set] of dupBar) {
+      const lista = [...set];
+      log(`  ❌ código de barras ${bc} en ${lista.length} productos distintos`);
+      for (const t2 of lista) log(`       - ${t2.slice(0, 66)}`);
+      detalles.push({
+        producto: `[duplicado] código de barras ${bc}`,
+        problemas: [`el mismo ID de Dropi está en ${lista.length} productos: ${lista.map((x) => x.slice(0, 44)).join(' | ')}. El stock se escribirá en uno solo.`],
+      });
+      fallan++;
+    }
+    for (const [, arr] of dupTit) {
+      log(`  ❌ título repetido: ${arr[0].slice(0, 60)}`);
+      detalles.push({
+        producto: `[duplicado] ${arr[0].slice(0, 60)}`,
+        problemas: [`hay ${arr.length} productos con el mismo título: ${arr.map((x) => x.slice(0, 40)).join(' | ')}`],
+      });
+      fallan++;
+    }
+  }
+
+  // ── borradores olvidados ──
+  const ahora = Date.now();
+  const borradores = prods.filter((p) => p.status === 'DRAFT' && p.createdAt &&
+    (ahora - new Date(p.createdAt).getTime()) / 86400000 > DIAS_BORRADOR);
+  if (borradores.length) {
+    log('');
+    log(`Borradores olvidados (más de ${DIAS_BORRADOR} días sin publicar): ${borradores.length}`);
+    for (const p of borradores) {
+      const dias = Math.round((ahora - new Date(p.createdAt).getTime()) / 86400000);
+      log(`  ⏳ ${p.title.slice(0, 60)} (${dias} días)`);
+      detalles.push({
+        producto: `[borrador] ${p.title}`,
+        problemas: [`lleva ${dias} días en borrador: no se vende ni aparece en la tienda. Publícalo o elimínalo.`],
+      });
+      fallan++;
+    }
+  }
+
   // ── colecciones: canal del asesor + imagen para la tarjeta "Entra Aqui" ──
   const problemasColecciones = [];
   try {

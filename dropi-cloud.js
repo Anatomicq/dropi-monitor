@@ -13,6 +13,7 @@ const { actualizarStockShopify } = require('./actualizar-shopify');
 const { verificarVitrina } = require('./verificar-vitrina');
 const { reportarKits } = require('./reporte-kits');
 const { obtenerProductosShopify } = require('./obtener-productos-shopify');
+const { sincronizarCostos } = require('./sincronizar-costos');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -384,9 +385,18 @@ async function main() {
       // (y desde la limpieza de agosto 2026, tambien en el SKU). El SKU antiguo era
       // texto libre y estaba duplicado en 10 grupos, por eso ya no se usa como clave.
       const stockPorId = new Map();
+      // Precio base de Dropi = costo por unidad. Se carga en Shopify para que la
+      // auditoría pueda calcular el margen sin volver a consultar a Dropi.
+      const costoPorId = new Map();
       for (let i = 0; i < productos.length; i++) {
         const d = datos[i];
         const id = productos[i].dropiId && String(productos[i].dropiId).trim();
+        if (id && d && d.existe && Number(d.precioBase) > 0) {
+          costoPorId.set(id, Number(d.precioBase));
+          if (Array.isArray(d.variaciones)) {
+            for (const v of d.variaciones) costoPorId.set(String(v.id), Number(d.precioBase));
+          }
+        }
         if (id && d && d.existe) {
           // Si el producto esta ARCHIVADO / inactivo / eliminado en Dropi, sus pedidos
           // fallan en silencio. Forzamos stock 0 en Shopify para que salga AGOTADO
@@ -411,6 +421,12 @@ async function main() {
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
       }, stockPorId);
+      // Costo por unidad (precio base de Dropi) -> alimenta el margen en la auditoría.
+      await sincronizarCostos({
+        STORE: process.env.SHOPIFY_STORE,
+        CID: process.env.SHOPIFY_CLIENT_ID,
+        CS: process.env.SHOPIFY_CLIENT_SECRET,
+      }, costoPorId);
       // Chequeo de salud: ¿la vitrina publica refleja este inventario? (ver verificar-vitrina.js)
       await verificarVitrina({
         STORE: process.env.SHOPIFY_STORE,
