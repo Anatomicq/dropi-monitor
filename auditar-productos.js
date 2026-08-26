@@ -290,7 +290,12 @@ async function main() {
             problemas.push('no publicada en el canal del asesor (el chat no la puede sugerir)');
           }
         }
-        if (!c.image) problemas.push('sin imagen: la tarjeta "Entra Aquí" del asesor saldría sin foto');
+        // La imagen solo se exige a las SUBCATEGORÍAS del menú: son las que el
+        // asesor ofrece como tarjeta "Entra Aquí". Las categorías madre, las
+        // colecciones de kits y las sueltas no llevan foto por decisión del negocio.
+        if (!c.image && subHandles.has(c.handle)) {
+          problemas.push('sin imagen: la tarjeta "Entra Aquí" del asesor saldría sin foto');
+        }
         if (problemas.length) problemasColecciones.push({ producto: `[colección] ${c.title}`, handle: c.handle, problemas });
       }
       curC = dc.collections.pageInfo.hasNextPage ? dc.collections.pageInfo.endCursor : null;
