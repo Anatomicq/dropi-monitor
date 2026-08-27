@@ -387,6 +387,20 @@ async function main() {
     log('⚠️ No se pudieron enviar las alertas de proveedor: ' + e.message);
   }
 
+  // Pestaña CONSOLIDADA "Auditoría" (cols A–U). GATED por env: solo envía si
+  // CONSOLIDADO_SHEET=1, para no caer al fallback destructivo si el Apps Script
+  // todavía no tiene el handler 'consolidado'. El nombre de pestaña va en
+  // CONSOLIDADO_TAB (por defecto "Auditoría Total" mientras se valida).
+  if (process.env.CONSOLIDADO_SHEET === '1') {
+    try {
+      const { construirConsolidado, enviarConsolidado } = require('./consolidado');
+      const tabC = process.env.CONSOLIDADO_TAB || 'Auditoría Total';
+      const cons = construirConsolidado(productos, datos);
+      const okC = await enviarConsolidado(WEBAPP_URL, SECRET, tabC, cons, timestamp);
+      log(okC ? `✅ Pestaña consolidada "${tabC}" actualizada (${cons.filas.length} filas).` : '⚠️ No se pudo actualizar la pestaña consolidada.');
+    } catch (e) { log('⚠️ Consolidado: ' + e.message); }
+  }
+
   // Empujar el MISMO stock a Shopify (emparejando por SKU). Solo productos que existen en Dropi.
   if (process.env.SHOPIFY_STORE) {
     try {
