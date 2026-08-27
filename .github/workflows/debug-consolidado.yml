@@ -1,0 +1,19 @@
+name: Debug consolidado
+on:
+  workflow_dispatch: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Probar filas consolidadas (no escribe hoja)
+        run: node test-consolidado.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}

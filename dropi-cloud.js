@@ -99,12 +99,20 @@ async function consultar(id, token) {
     const proveedor = ((u.name || '') + ' ' + (u.surname || '')).trim() || (u.email || 'Sin proveedor');
     const telefono = u.phone ? String(u.phone) : '';
 
+    // Stock privado DE OTROS vendedores: private_product_inventories es un array
+    // con una entrada por vendedor que tiene stock privado asignado (user_id + stock).
+    // "_rest" es el privado que nos queda a nosotros; este suma el de los demás.
+    const sumPrivInv = (arr) => Array.isArray(arr) ? arr.reduce((s, x) => s + (Number(x.stock) || 0), 0) : 0;
+    let privOtros = sumPrivInv(o.private_product_inventories);
+    if (Array.isArray(o.variations)) for (const v of o.variations) privOtros += sumPrivInv(v.private_product_inventories);
+
     return {
       existe: true, nombre: o.name, stock,
       privado: !!o.privated_product,
       stockPrivado: (Array.isArray(o.variations) && o.variations.length)
         ? o.variations.reduce((s, v) => s + (Number(v.private_product_inventories_rest) || 0), 0)
         : (Number(o.private_product_inventories_rest) || 0),
+      privOtros,
       activo: !!o.active, archivado: !!o.archived, aceptaPedidos: !!o.orders, eliminado: o.deleted_at != null,
       precioBase, precioSug,
       proveedor, telefono,
@@ -448,4 +456,7 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('❌ ERROR:', e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('❌ ERROR:', e.message); process.exit(1); });
+}
+module.exports = { consultar, login, construirAlertasProveedor };

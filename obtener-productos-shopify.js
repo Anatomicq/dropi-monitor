@@ -1,13 +1,16 @@
 /**
  * Arma la lista de productos LEYENDO DIRECTO de Shopify (no de un archivo fijo).
  * Saca el ID de Dropi del metafield 'dropi._dropi_product' que pone la app Dropify.
- * Así cualquier producto agregado/editado/quitado en Shopify se detecta solo.
  *
- * Devuelve: [{ titulo, sku, dropiId, shopifyStatus, esBasePack }]
- *   esBasePack = el producto es COMPONENTE de un pack/kit. Las "bases" de los
- *   packs de cantidad quedan en borrador a proposito (si estuvieran activas el
- *   cliente veria el producto duplicado), asi que en el reporte NO deben salir
- *   como "draft" (parece un error) sino como base de pack.
+ * Devuelve por producto:
+ *   { titulo, sku, dropiId, shopifyStatus, esBasePack, esComponente,
+ *     precio, invShopify, colecciones, variantsCount }
+ *   - esComponente / esBasePack: el producto es componente de algún pack/kit
+ *     (misma verdad; esBasePack se conserva por compatibilidad con dropi-cloud).
+ *   - precio: precio de la 1ª variante (x1) en Shopify — para la utilidad.
+ *   - invShopify: inventario total del producto en Shopify — para comparar con Dropi.
+ *   - colecciones: handles de colecciones — para categoría/subcategoría.
+ *   - variantsCount: nº de variantes en Shopify.
  * Variables: SHOPIFY_STORE, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET
  */
 const API = '2025-01';
@@ -32,11 +35,13 @@ async function gql(STORE, t, query, variables) {
 }
 
 const Q = `query($c:String){
-  products(first:100, after:$c){
+  products(first:80, after:$c){
     pageInfo{ hasNextPage endCursor }
     edges{ node{
-      id title status
-      variants(first:1){ edges{ node{ sku } } }
+      id title status totalInventory
+      variantsCount{ count }
+      variants(first:1){ edges{ node{ sku price } } }
+      collections(first:30){ edges{ node{ handle } } }
       bundleComponents(first:25){ edges{ node{ componentProduct{ id } } } }
       metafield(namespace:"dropi", key:"_dropi_product"){ value }
     } }
@@ -70,12 +75,19 @@ async function obtenerProductosShopify(cfg) {
     let dropiId;
     try { dropiId = JSON.parse(n.metafield.value).id; } catch { dropiId = null; }
     if (!dropiId) { sinDropi++; continue; }
-    const sku = (n.variants.edges[0]?.node?.sku || '').trim();
+    const v0 = n.variants.edges[0]?.node || {};
+    const sku = (v0.sku || '').trim();
     if (!sku) { sinSku++; continue; } // sin SKU no se puede emparejar
+    const esComponente = componentes.has(n.id);
     out.push({
       titulo: n.title, sku, dropiId: String(dropiId),
       shopifyStatus: (n.status || '').toLowerCase(),
-      esBasePack: componentes.has(n.id),
+      esBasePack: esComponente,     // compat dropi-cloud (label "base de pack")
+      esComponente,                 // Q: ¿en un kit?
+      precio: Number(v0.price) || 0,
+      invShopify: Number(n.totalInventory) || 0,
+      colecciones: (n.collections?.edges || []).map(c => c.node.handle),
+      variantsCount: Number(n.variantsCount?.count) || 1,
     });
   }
   return { productos: out, sinDropi, sinSku };
