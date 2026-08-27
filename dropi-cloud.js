@@ -207,13 +207,14 @@ function fila(prod, d) {
   else if (d.stock === 0)    { estado = '🔴 Sin stock';   notas = 'Stock en 0'; }
   else if (d.stock <= 10)    { estado = '⚠️ Stock bajo';  notas = 'Solo ' + d.stock + ' unidades'; }
   if (d.esVariable) notas = (notas ? notas + ' | ' : '') + 'Variable: ' + d.nVariaciones + ' variantes (stock sumado)';
+  if (prod.esBasePack && prod.shopifyStatus === 'draft') notas = (notas ? notas + ' | ' : '') + 'Oculto A PROPOSITO: se vende dentro del pack con selector de unidades';
   return [
     prod.dropiId, prod.sku, prod.titulo, d.existe ? d.nombre : '—', d.existe ? d.stock : '—',
     d.existe ? (d.privado ? 'Privado' : 'Público') : '—',
     d.existe ? (Number(d.stockPrivado) || 0) : 0,
     d.existe ? (d.activo ? 'Sí' : 'No') : '—',
     d.existe ? (d.archivado ? 'Sí' : 'No') : '—',
-    prod.shopifyStatus,
+    (prod.esBasePack && prod.shopifyStatus === 'draft') ? '📦 base de pack (OK)' : prod.shopifyStatus,
     d.existe ? d.proveedor : '—', d.existe ? d.telefono : '—',
     d.existe ? d.bodega : '—', d.existe ? d.ciudad : '—',
     d.existe ? d.precioBase : 0, d.existe ? d.precioSug : 0, estado, notas,
