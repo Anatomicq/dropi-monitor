@@ -23,3 +23,7 @@ jobs:
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
           SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+          # Activo desde el 2026-08-26: el Apps Script ya tiene desplegado el
+          # manejador de body.auditoria, así que el aviso por correo no cae al
+          # fallback que borra la pestaña "Inventario Dropi".
+          AUDIT_EMAIL: '1'
