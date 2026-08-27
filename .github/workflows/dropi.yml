@@ -48,6 +48,11 @@ jobs:
           STRICT_VITRINA: '1'
           # Envia la pestaña "Kits" al Sheet (el Apps Script ya tiene el manejador 'kits', version 6)
           KITS_SHEET: '1'
+          # Pestaña CONSOLIDADA (cols A-U). El Apps Script v13 (27-ago-2026) ya tiene el
+          # handler 'consolidado'. Escribe en "Auditoría Total" mientras se valida; luego
+          # se renombra a "Auditoría" en el cutover.
+          CONSOLIDADO_SHEET: '1'
+          CONSOLIDADO_TAB: 'Auditoría Total'
       # En la MISMA corrida, actualiza los sustitutos en el mismo Excel (pestaña "Sustitutos").
       # if: always() → corre aunque el paso de stock haya terminado con advertencia.
       - name: Sustitutos → Excel (pestaña Sustitutos)
