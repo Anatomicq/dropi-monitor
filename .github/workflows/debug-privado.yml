@@ -14,4 +14,4 @@ jobs:
         env:
           DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
           DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
-          IDS: '2020534,2088423'
+          IDS: '2200263,2020534,2131722'
