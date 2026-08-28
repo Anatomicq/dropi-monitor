@@ -46,13 +46,17 @@ const ENCABEZADOS = ['ID Dropi','SKU','Producto Shopify','Nombre Dropi','Stock p
 const corto = (t) => String(t || '').split(' - ').slice(-1)[0].slice(0, 60);
 
 function colorFila(prod, d) {
-  if (!d || !d.existe) return 'negro';
+  if (!d || !d.existe) return 'negro';    // no existe en Dropi
+  if (d.archivado) return 'morado';       // archivado (el proveedor no despacha) - problema distinto al agotado
   const e = Number(d.stock) || 0;
-  if (d.archivado || e === 0) return 'rojo';
+  if (e === 0) return 'rojo';      // agotado (0)
   if (e < 50) return 'amarillo';   // literal: 1-49
   if (e < 99) return 'naranja';    // literal: 50-98
   return '';
 }
+
+// Orden de aparición (severidad para el usuario): negro > morado > rojo > naranja > amarillo > sin color.
+const PRIORIDAD = { negro: 0, morado: 1, rojo: 2, naranja: 3, amarillo: 4, '': 5 };
 
 function categoriaSub(prod) {
   // Los componentes/bases de pack estan ocultos a proposito: no exigen categoria.
@@ -113,25 +117,34 @@ function invDesalineado(prod, d) {
 }
 
 function construirConsolidado(productos, datos) {
-  const filas = [], colors = [], catRed = [], subRed = [], invRed = [];
-  const t = { nProductos: 0, rojo: 0, naranja: 0, amarillo: 0, negro: 0, rojoNegroEnKit: 0, amarilloEnKit: 0, archivados: 0 };
+  // 1) armar registros con su color y ORDENAR por severidad (color primero).
+  const regs = [];
   for (let i = 0; i < productos.length; i++) {
     const prod = productos[i], d = datos[i];
-    filas.push(filaConsolidada(prod, d));
     const c = colorFila(prod, d);
-    colors.push(c);
     const cs = categoriaSub(prod);
-    catRed.push(!cs.catOK);
-    subRed.push(!cs.subOK);
-    invRed.push(invDesalineado(prod, d));
+    regs.push({ prod, d, color: c, catRed: !cs.catOK, subRed: !cs.subOK, invRed: invDesalineado(prod, d) });
+  }
+  regs.sort((a, b) => (PRIORIDAD[a.color] - PRIORIDAD[b.color]));
+
+  // 2) construir arrays ya ordenados + totales.
+  const filas = [], colors = [], catRed = [], subRed = [], invRed = [];
+  const t = { nProductos: 0, negro: 0, morado: 0, rojo: 0, naranja: 0, amarillo: 0, problemaEnKit: 0, amarilloEnKit: 0, archivados: 0 };
+  for (const r of regs) {
+    filas.push(filaConsolidada(r.prod, r.d));
+    colors.push(r.color);
+    catRed.push(r.catRed);
+    subRed.push(r.subRed);
+    invRed.push(r.invRed);
     t.nProductos++;
-    if (c === 'rojo') t.rojo++;
-    if (c === 'naranja') t.naranja++;
-    if (c === 'amarillo') t.amarillo++;
-    if (c === 'negro') t.negro++;
-    if ((c === 'rojo' || c === 'negro') && prod.esComponente) t.rojoNegroEnKit++;
-    if (c === 'amarillo' && prod.esComponente) t.amarilloEnKit++;
-    if (d && d.existe && d.archivado) t.archivados++;
+    if (r.color === 'negro') t.negro++;
+    if (r.color === 'morado') t.morado++;
+    if (r.color === 'rojo') t.rojo++;
+    if (r.color === 'naranja') t.naranja++;
+    if (r.color === 'amarillo') t.amarillo++;
+    if ((r.color === 'negro' || r.color === 'morado' || r.color === 'rojo') && r.prod.esComponente) t.problemaEnKit++;
+    if (r.color === 'amarillo' && r.prod.esComponente) t.amarilloEnKit++;
+    if (r.d && r.d.existe && r.d.archivado) t.archivados++;
   }
   return { encabezados: ENCABEZADOS, filas, colors, catRed, subRed, invRed, totales: t };
 }
