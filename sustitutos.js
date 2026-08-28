@@ -54,7 +54,18 @@ async function buscarCandidatos(t, nombre) {
 }
 (async () => {
   const t = await login(); console.log('Login OK.');
-  let productos = JSON.parse(fs.readFileSync('productos.json', 'utf8'));
+  // Lista VIVA de Shopify (mismos dropiId que la pestaña consolidada, para que
+  // los sustitutos casen por ID). Si Shopify falla, respaldo con productos.json.
+  let productos;
+  if (process.env.SHOPIFY_STORE) {
+    try {
+      const { obtenerProductosShopify } = require('./obtener-productos-shopify');
+      const r = await obtenerProductosShopify({ STORE: process.env.SHOPIFY_STORE, CID: process.env.SHOPIFY_CLIENT_ID, CS: process.env.SHOPIFY_CLIENT_SECRET });
+      productos = r.productos;
+      console.log(`Lista viva de Shopify: ${productos.length} productos.`);
+    } catch (e) { console.log('⚠️ No pude leer Shopify (' + e.message + '); uso productos.json.'); }
+  }
+  if (!productos || !productos.length) productos = JSON.parse(fs.readFileSync('productos.json', 'utf8'));
   if (LIMIT) productos = productos.slice(0, LIMIT);
   console.log('Procesando', productos.length, 'productos...');
   const out = [];
