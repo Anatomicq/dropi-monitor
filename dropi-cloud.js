@@ -356,35 +356,41 @@ async function main() {
   // de Google, y eso tumbaba toda la corrida. Reintentamos varias veces antes de rendirnos.
   const INTENTOS_HOJA = 3;
   const PAUSA_HOJA = 5000; // 5s entre intentos
-  let hojaOK = false;
-  for (let intento = 1; intento <= INTENTOS_HOJA; intento++) {
-    try {
-      const r = await fetch(WEBAPP_URL, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: payload, redirect: 'follow',
-      });
-      const txt = await r.text();
-      let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
-      if (ok) { hojaOK = true; log('✅ Hoja de Google actualizada.'); break; }
-      log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: respuesta inesperada de la hoja (HTTP ${r.status}): ` + txt.slice(0, 120).replace(/\s+/g, ' '));
-    } catch (e) {
-      log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: error de red al escribir la hoja: ` + e.message);
+  // Pestañas VIEJAS (Inventario Dropi + Resumen, y Alertas Proveedor): SOLO si
+  // LEGACY_TABS=1. Tras el cutover quedan apagadas — toda su info está en la
+  // pestaña consolidada (colores por stock + link WhatsApp en la col M).
+  if (process.env.LEGACY_TABS === '1') {
+    let hojaOK = false;
+    for (let intento = 1; intento <= INTENTOS_HOJA; intento++) {
+      try {
+        const r = await fetch(WEBAPP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: payload, redirect: 'follow',
+        });
+        const txt = await r.text();
+        let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
+        if (ok) { hojaOK = true; log('✅ Hoja de Google (Inventario/Resumen) actualizada.'); break; }
+        log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: respuesta inesperada de la hoja (HTTP ${r.status}): ` + txt.slice(0, 120).replace(/\s+/g, ' '));
+      } catch (e) {
+        log(`⚠️ Intento ${intento}/${INTENTOS_HOJA}: error de red al escribir la hoja: ` + e.message);
+      }
+      if (intento < INTENTOS_HOJA) await sleep(PAUSA_HOJA);
     }
-    if (intento < INTENTOS_HOJA) await sleep(PAUSA_HOJA);
-  }
-  if (!hojaOK) { log(`❌ No se pudo actualizar la hoja tras ${INTENTOS_HOJA} intentos.`); process.exitCode = 1; }
+    if (!hojaOK) { log(`❌ No se pudo actualizar la hoja tras ${INTENTOS_HOJA} intentos.`); process.exitCode = 1; }
 
-  // Enviar las alertas de proveedor a su propia pestaña (no toca las demás).
-  try {
-    const rA = await fetch(WEBAPP_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: SECRET, tipo: 'alertas', timestamp, alertas }), redirect: 'follow',
-    });
-    const tA = await rA.text();
-    let okA = false; try { okA = JSON.parse(tA).ok; } catch {}
-    log(okA ? '✅ Pestaña "Alertas Proveedor" actualizada.' : '⚠️ Alertas: respuesta inesperada de la hoja.');
-  } catch (e) {
-    log('⚠️ No se pudieron enviar las alertas de proveedor: ' + e.message);
+    try {
+      const rA = await fetch(WEBAPP_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: SECRET, tipo: 'alertas', timestamp, alertas }), redirect: 'follow',
+      });
+      const tA = await rA.text();
+      let okA = false; try { okA = JSON.parse(tA).ok; } catch {}
+      log(okA ? '✅ Pestaña "Alertas Proveedor" actualizada.' : '⚠️ Alertas: respuesta inesperada de la hoja.');
+    } catch (e) {
+      log('⚠️ No se pudieron enviar las alertas de proveedor: ' + e.message);
+    }
+  } else {
+    log('Pestañas legacy (Inventario Dropi / Resumen / Alertas) desactivadas — todo va en la consolidada.');
   }
 
   // Pestaña CONSOLIDADA "Auditoría" (cols A–U). GATED por env: solo envía si

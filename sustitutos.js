@@ -105,10 +105,31 @@ async function buscarCandidatos(t, nombre) {
       enc.push([o.producto, o.sku, o.miStock ?? '', o.miProveedor ?? '', ...cel(0), ...cel(1), ...cel(2)]);
     }
     const ts = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-    try {
-      const r = await fetch(WEBAPP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: SECRET, tipo: 'sustitutos', timestamp: ts, rows: enc }), redirect: 'follow' });
-      const txt = await r.text(); let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
-      console.log(ok ? '✅ Pestaña "Sustitutos" actualizada en el Sheet.' : '⚠️ Respuesta del Sheet: ' + txt.slice(0, 150));
-    } catch (e) { console.log('⚠️ No pude escribir en el Sheet: ' + e.message); }
+
+    // Pestaña vieja "Sustitutos" — solo si LEGACY_TABS=1 (se retira en el cutover).
+    if (process.env.LEGACY_TABS === '1') {
+      try {
+        const r = await fetch(WEBAPP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: SECRET, tipo: 'sustitutos', timestamp: ts, rows: enc }), redirect: 'follow' });
+        const txt = await r.text(); let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
+        console.log(ok ? '✅ Pestaña "Sustitutos" (legacy) actualizada.' : '⚠️ Respuesta del Sheet: ' + txt.slice(0, 150));
+      } catch (e) { console.log('⚠️ No pude escribir la pestaña legacy: ' + e.message); }
+    }
+
+    // Pestaña CONSOLIDADA (columnas V+): mapa ID Dropi -> [nombre,proveedor,id,unidades] x3.
+    // El handler consolidado_sustitutos casa cada fila por el ID Dropi de la col A.
+    if (process.env.CONSOLIDADO_TAB) {
+      const sustMap = {};
+      for (const o of out) {
+        const s = o.sustitutos || [];
+        const cel = i => s[i] ? [s[i].nombre, s[i].proveedor, String(s[i].dropiId), s[i].stock] : ['', '', '', ''];
+        sustMap[String(o.dropiId)] = [...cel(0), ...cel(1), ...cel(2)];
+      }
+      try {
+        const r2 = await fetch(WEBAPP, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: SECRET, tipo: 'consolidado_sustitutos', tab: process.env.CONSOLIDADO_TAB, tsSustitutos: ts, sustitutos: sustMap }), redirect: 'follow' });
+        const t2 = await r2.text(); let ok2 = false; try { ok2 = JSON.parse(t2).ok; } catch {}
+        console.log(ok2 ? `✅ Sustitutos consolidados en "${process.env.CONSOLIDADO_TAB}".` : '⚠️ Consolidado sust: ' + t2.slice(0, 150));
+      } catch (e) { console.log('⚠️ Consolidado sust: ' + e.message); }
+    }
   } else console.log('SHEETS_WEBAPP_URL no configurado; no se escribió en el Sheet.');
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });

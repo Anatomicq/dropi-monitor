@@ -6,6 +6,8 @@ on:
     - cron: '0 * * * *'
     # Analisis de precios: 1 vez al dia, 12:00 Colombia (17:00 UTC) — dispara SOLO el job "precios"
     - cron: '0 17 * * *'
+    # Sustitutos: 1 vez al dia, 5:00 Colombia (10:00 UTC) — dispara SOLO el job "sustitutos"
+    - cron: '0 10 * * *'
   workflow_dispatch: {}     # permite ejecutarlo a mano desde la pestaña Actions
 
 jobs:
@@ -26,7 +28,7 @@ jobs:
           SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
           SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
   run:
-    if: github.event.schedule != '0 17 * * *'
+    if: github.event.schedule != '0 17 * * *' && github.event.schedule != '0 10 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,23 +55,7 @@ jobs:
           # se renombra a "Auditoría" en el cutover.
           CONSOLIDADO_SHEET: '1'
           CONSOLIDADO_TAB: 'Auditoría Total'
-      # En la MISMA corrida, actualiza los sustitutos en el mismo Excel (pestaña "Sustitutos").
-      # if: always() → corre aunque el paso de stock haya terminado con advertencia.
-      - name: Sustitutos → Excel (pestaña Sustitutos)
-        if: always()
-        run: node sustitutos.js
-        env:
-          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
-          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
-          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
-          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
-      - name: Respaldo sustitutos (artifact)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sustitutos
-          path: sustitutos-resultado.json
-          if-no-files-found: warn
+      # (Los sustitutos ya NO corren aquí cada hora: pasaron al job diario "sustitutos" de 5am.)
       # Chequeo de SKUs: el SKU es la llave con la que Dropi empareja los pedidos.
       # El 2026-08-26 un proceso no identificado borro 45 SKUs y los pedidos de esos
       # productos habrian fallado en silencio. Si alguna variante pierde su SKU,
@@ -81,3 +67,30 @@ jobs:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+
+  # Sustitutos: 1 vez al día a las 5:00 Colombia (10:00 UTC). Busca productos
+  # equivalentes de otros proveedores y los escribe en las columnas V+ de la
+  # pestaña consolidada (tipo 'consolidado_sustitutos', casa por ID Dropi).
+  sustitutos:
+    if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sustitutos → pestaña consolidada (cols V+)
+        run: node sustitutos.js
+        env:
+          DROPI_EMAIL: ${{ secrets.DROPI_EMAIL }}
+          DROPI_PASSWORD: ${{ secrets.DROPI_PASSWORD }}
+          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
+          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+          CONSOLIDADO_TAB: 'Auditoría Total'
+      - name: Respaldo sustitutos (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sustitutos
+          path: sustitutos-resultado.json
+          if-no-files-found: warn

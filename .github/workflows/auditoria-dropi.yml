@@ -1,9 +1,10 @@
 ﻿name: Auditoria Dropi-Shopify
 # Auditoría 3 vías + jerarquía de categorías → pestaña "Auditoría" del Sheet.
 # Lunes 7:00 Colombia (12:00 UTC) y manual.
+# RETIRADO en el cutover 2026-08-27: la auditoría Dropi vs Shopify vive ahora en
+# la pestaña consolidada (columna R "Inv Dropi/Shopify", roja si dif>20%). Se deja
+# solo manual por si se necesita el formato viejo puntual.
 on:
-  schedule:
-    - cron: '0 12 * * 1'
   workflow_dispatch: {}
 
 jobs:
