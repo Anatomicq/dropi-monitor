@@ -54,7 +54,7 @@ jobs:
           # handler 'consolidado'. Escribe en "Auditoría Total" mientras se valida; luego
           # se renombra a "Auditoría" en el cutover.
           CONSOLIDADO_SHEET: '1'
-          CONSOLIDADO_TAB: 'Auditoría Total'
+          CONSOLIDADO_TAB: 'Auditoría'
       # (Los sustitutos ya NO corren aquí cada hora: pasaron al job diario "sustitutos" de 5am.)
       # Chequeo de SKUs: el SKU es la llave con la que Dropi empareja los pedidos.
       # El 2026-08-26 un proceso no identificado borro 45 SKUs y los pedidos de esos
@@ -89,7 +89,7 @@ jobs:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
-          CONSOLIDADO_TAB: 'Auditoría Total'
+          CONSOLIDADO_TAB: 'Auditoría'
       - name: Respaldo sustitutos (artifact)
         if: always()
         uses: actions/upload-artifact@v4
