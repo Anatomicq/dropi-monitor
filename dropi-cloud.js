@@ -14,6 +14,7 @@ const { verificarVitrina } = require('./verificar-vitrina');
 const { reportarKits } = require('./reporte-kits');
 const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 const { sincronizarCostos } = require('./sincronizar-costos');
+const { sincronizarProveedoresKits } = require('./sincronizar-proveedores-kits');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -468,6 +469,18 @@ async function main() {
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
       }, WEBAPP_URL, SECRET);
+      // Proveedores reales de cada kit -> los lee el aviso de envío del carrito.
+      // Va al final y con su propio try: es lo menos crítico de este bloque y no
+      // debe poder tumbar el stock ni los reportes de arriba.
+      try {
+        await sincronizarProveedoresKits({
+          STORE: process.env.SHOPIFY_STORE,
+          CID: process.env.SHOPIFY_CLIENT_ID,
+          CS: process.env.SHOPIFY_CLIENT_SECRET,
+        });
+      } catch (e) {
+        log('⚠️ No se pudieron sincronizar los proveedores de los kits: ' + e.message);
+      }
     } catch (e) {
       log('⚠️ No se pudo actualizar Shopify: ' + e.message);
     }
