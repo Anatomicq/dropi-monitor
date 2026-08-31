@@ -103,10 +103,19 @@ async function reportarKits(cfg, WEBAPP_URL, SECRET) {
     if (process.env.KITS_SHEET !== '1') { log(`KITS_SHEET != 1: no se envia al Sheet (${rows.length - 1} filas listas).`); return; }
     if (!WEBAPP_URL) { log('sin SHEETS_WEBAPP_URL; se omite.'); return; }
     const timestamp = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-    const r = await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: SECRET, tipo: 'kits', timestamp, stats, rows }), redirect: 'follow' });
-    const txt = await r.text(); let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
-    log(ok ? '✅ Pestaña "Kits" actualizada en el Sheet.' : '⚠️ Respuesta del Sheet: ' + txt.slice(0, 150));
+    const body = JSON.stringify({ secret: SECRET, tipo: 'kits', timestamp, stats, rows });
+    // El relay de Apps Script a veces devuelve un hipo (HTML en vez de JSON).
+    // Reintentamos 3 veces para que la pestaña no se quede sin actualizar.
+    let ok = false;
+    for (let intento = 1; intento <= 3 && !ok; intento++) {
+      try {
+        const r = await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, redirect: 'follow' });
+        const txt = await r.text(); try { ok = JSON.parse(txt).ok; } catch {}
+        if (ok) log('✅ Pestaña "Kits" actualizada en el Sheet.');
+        else log(`⚠️ Intento ${intento}/3: respuesta inesperada: ` + txt.slice(0, 120).replace(/\s+/g, ' '));
+      } catch (e) { log(`⚠️ Intento ${intento}/3: error de red: ` + e.message); }
+      if (!ok && intento < 3) await new Promise(res => setTimeout(res, 5000));
+    }
   } catch (e) {
     log('error (no fatal): ' + e.message);
   }
