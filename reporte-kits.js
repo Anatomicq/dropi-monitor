@@ -40,9 +40,10 @@ async function gql(STORE, t, query, variables) {
 const Q = `query($c:String){ products(first:100, after:$c, query:"status:active"){
   pageInfo{ hasNextPage endCursor }
   edges{ node{ title
+    variants(first:1){ edges{ node{ price } } }
     bundleComponents(first:20){ edges{ node{ quantity
       componentProduct{ title vendor }
-      componentVariants(first:5){ edges{ node{ title sku inventoryQuantity } } } } } } } } } }`;
+      componentVariants(first:5){ edges{ node{ title sku price inventoryQuantity } } } } } } } } } }`;
 
 /** Lee todos los bundles y arma las filas de la pestaña. */
 async function armarFilasKits(cfg) {
@@ -55,17 +56,22 @@ async function armarFilasKits(cfg) {
     for (const e of d.products.edges) {
       const comps = e.node.bundleComponents.edges;
       if (!comps.length) continue;
+      const precioKit = Number(e.node.variants.edges[0] && e.node.variants.edges[0].node.price) || 0;
       const componentes = [];
       for (const c of comps) {
         const n = c.node;
         // stock del componente = suma de las variantes que el kit usa (normalmente 1)
-        let stock = 0, skus = [];
-        for (const v of n.componentVariants.edges) { stock += Number(v.node.inventoryQuantity) || 0; if (v.node.sku) skus.push(v.node.sku); }
-        componentes.push({ nombre: n.componentProduct.title, proveedor: n.componentProduct.vendor || '', sku: skus.join(' / '), stock, cantidad: n.quantity });
+        let stock = 0, skus = [], precioProd = 0;
+        for (const v of n.componentVariants.edges) {
+          stock += Number(v.node.inventoryQuantity) || 0;
+          if (v.node.sku) skus.push(v.node.sku);
+          if (!precioProd) precioProd = Number(v.node.price) || 0; // precio de la 1ª variante del producto
+        }
+        componentes.push({ nombre: n.componentProduct.title, proveedor: n.componentProduct.vendor || '', sku: skus.join(' / '), stock, cantidad: n.quantity, precioProd });
       }
       componentes.sort((a, b) => a.stock - b.stock);
       const minimo = Math.min(...componentes.map(c => c.stock));
-      kits.push({ nombre: e.node.title, minimo, componentes });
+      kits.push({ nombre: e.node.title, minimo, componentes, precioKit });
     }
     cursor = d.products.pageInfo.hasNextPage ? d.products.pageInfo.endCursor : null;
     pagina++;
@@ -76,26 +82,29 @@ async function armarFilasKits(cfg) {
   const prio = k => (k.minimo <= 0 ? 0 : (k.minimo <= UMBRAL_BAJO ? 1 : 2));
   kits.sort((a, b) => prio(a) - prio(b) || a.minimo - b.minimo || a.nombre.localeCompare(b.nombre));
 
-  const rows = [['Kit', 'Estado del kit', 'Stock mínimo', 'Componente', 'Proveedor', 'SKU', 'Stock', 'Cant. en kit']];
+  const rows = [['Kit', 'Estado del kit', 'Stock mínimo', 'Componente', 'Proveedor', 'SKU', 'Stock', 'Cant. en kit', 'Precio producto', 'Precio kit']];
   for (const k of kits) {
     const estado = k.minimo <= 0 ? 'AGOTADO' : (k.minimo <= UMBRAL_BAJO ? 'STOCK BAJO' : 'Disponible');
-    for (const c of k.componentes) rows.push([k.nombre, estado, k.minimo, c.nombre, c.proveedor, c.sku, c.stock, c.cantidad]);
+    for (const c of k.componentes) rows.push([k.nombre, estado, k.minimo, c.nombre, c.proveedor, c.sku, c.stock, c.cantidad, c.precioProd, k.precioKit]);
   }
-  const agotados = kits.filter(k => k.minimo <= 0).length, bajos = kits.filter(k => k.minimo > 0 && k.minimo <= UMBRAL_BAJO).length;
-  log(`kits: ${kits.length} | agotados: ${agotados} | con stock bajo (<=${UMBRAL_BAJO}): ${bajos}`);
-  return rows;
+  const agotados = kits.filter(k => k.minimo <= 0).length;
+  const naranja  = kits.filter(k => k.minimo > 0 && k.minimo <= UMBRAL_BAJO).length;
+  const disponibles = kits.filter(k => k.minimo > UMBRAL_BAJO).length;
+  const stats = { activos: kits.length, disponibles, agotados, naranja };
+  log(`kits: ${kits.length} | disponibles: ${disponibles} | naranja(<=${UMBRAL_BAJO}): ${naranja} | agotados: ${agotados}`);
+  return { rows, stats };
 }
 
 /** Envia la pestaña al Sheet (mismo relay del monitor, tipo 'kits'). */
 async function reportarKits(cfg, WEBAPP_URL, SECRET) {
   if (!cfg.STORE) return;
   try {
-    const rows = await armarFilasKits(cfg);
+    const { rows, stats } = await armarFilasKits(cfg);
     if (process.env.KITS_SHEET !== '1') { log(`KITS_SHEET != 1: no se envia al Sheet (${rows.length - 1} filas listas).`); return; }
     if (!WEBAPP_URL) { log('sin SHEETS_WEBAPP_URL; se omite.'); return; }
     const timestamp = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
     const r = await fetch(WEBAPP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: SECRET, tipo: 'kits', timestamp, rows }), redirect: 'follow' });
+      body: JSON.stringify({ secret: SECRET, tipo: 'kits', timestamp, stats, rows }), redirect: 'follow' });
     const txt = await r.text(); let ok = false; try { ok = JSON.parse(txt).ok; } catch {}
     log(ok ? '✅ Pestaña "Kits" actualizada en el Sheet.' : '⚠️ Respuesta del Sheet: ' + txt.slice(0, 150));
   } catch (e) {
