@@ -15,6 +15,7 @@ const { reportarKits } = require('./reporte-kits');
 const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 const { sincronizarCostos } = require('./sincronizar-costos');
 const { sincronizarProveedoresKits } = require('./sincronizar-proveedores-kits');
+const { ordenarColecciones } = require('./ordenar-colecciones');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -480,6 +481,18 @@ async function main() {
         });
       } catch (e) {
         log('⚠️ No se pudieron sincronizar los proveedores de los kits: ' + e.message);
+      }
+      // Orden de las colecciones: kits -> dispositivos -> aplicables.
+      // Al agregar un producto Shopify lo deja al final y se rompe el orden;
+      // aquí se corrige solo. También con su propio try, por lo mismo.
+      try {
+        await ordenarColecciones({
+          STORE: process.env.SHOPIFY_STORE,
+          CID: process.env.SHOPIFY_CLIENT_ID,
+          CS: process.env.SHOPIFY_CLIENT_SECRET,
+        });
+      } catch (e) {
+        log('⚠️ No se pudo ordenar las colecciones: ' + e.message);
       }
     } catch (e) {
       log('⚠️ No se pudo actualizar Shopify: ' + e.message);
