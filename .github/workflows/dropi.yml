@@ -8,12 +8,24 @@ on:
     - cron: '0 17 * * *'
     # Sustitutos: 1 vez al dia, 5:00 Colombia (10:00 UTC) — dispara SOLO el job "sustitutos"
     - cron: '0 10 * * *'
-  workflow_dispatch: {}     # permite ejecutarlo a mano desde la pestaña Actions
+  workflow_dispatch:
+    inputs:
+      only_monitor:
+        description: 'Correr SOLO el monitor (lo usa el cron externo horario; precios y sustitutos se saltan)'
+        type: boolean
+        default: false
+
+# Un solo run a la vez: si el cron externo (horario) y el cron propio de GitHub
+# coinciden, el segundo se ENCOLA en vez de encimarse y pelear al escribir el
+# Sheet / el stock de Shopify.
+concurrency:
+  group: dropi-monitor
+  cancel-in-progress: false
 
 jobs:
   precios:
     # Analisis de precios del proveedor: 1 vez al dia a las 12:00 Colombia (17:00 UTC)
-    if: github.event.schedule == '0 17 * * *' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 17 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.only_monitor != 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +84,7 @@ jobs:
   # equivalentes de otros proveedores y los escribe en las columnas V+ de la
   # pestaña consolidada (tipo 'consolidado_sustitutos', casa por ID Dropi).
   sustitutos:
-    if: github.event.schedule == '0 10 * * *' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 10 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.only_monitor != 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
