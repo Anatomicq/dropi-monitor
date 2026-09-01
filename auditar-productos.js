@@ -90,7 +90,6 @@ async function main() {
   const Q = `query($c:String){ products(first:50, after:$c){ pageInfo{hasNextPage endCursor}
     edges{ node{
       id title handle status tags productType onlineStoreUrl createdAt
-      resourcePublicationsV2(first:10){ edges{ node{ publication{ name } isPublished } } }
       description
       seo{ title }
       featuredMedia{ id }
@@ -200,7 +199,8 @@ async function main() {
     const canales = (p.resourcePublicationsV2?.edges || [])
       .filter((e) => e.node.isPublished)
       .map((e) => e.node.publication.name);
-    const faltaHeadless = !canales.some((c) => /headless/i.test(c));
+    // Guard: sin el scope read_publications no consultamos canales; omitimos el chequeo.
+    const faltaHeadless = p.resourcePublicationsV2 && !canales.some((c) => /headless/i.test(c));
     if (faltaHeadless) {
       if (AUTOFIX && pubHeadless) {
         try {
@@ -348,8 +348,7 @@ async function main() {
   const problemasColecciones = [];
   try {
     const QC = `query($c:String){ collections(first:100, after:$c){ pageInfo{hasNextPage endCursor}
-      edges{ node{ id title handle image{ url } productsCount{ count }
-        resourcePublicationsV2(first:10){ edges{ node{ publication{ name } isPublished } } } } } } }`;
+      edges{ node{ id title handle image{ url } productsCount{ count } } } } }`;
     let curC = null, pgC = 0;
     do {
       const dc = await gql(t, QC, { c: curC });
@@ -360,7 +359,7 @@ async function main() {
           .filter((x) => x.node.isPublished)
           .map((x) => x.node.publication.name);
         const problemas = [];
-        if (!cans.some((x) => /headless/i.test(x))) {
+        if (c.resourcePublicationsV2 && !cans.some((x) => /headless/i.test(x))) {
           if (AUTOFIX && pubHeadless) {
             try {
               await gql(t, M_PUBLICAR, { id: c.id, p: [{ publicationId: pubHeadless }] });
