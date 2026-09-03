@@ -22,6 +22,11 @@ concurrency:
   group: dropi-monitor
   cancel-in-progress: false
 
+# Menos permisos posibles: ningun workflow escribe en el repo, solo lee el
+# codigo y habla con APIs externas usando los secrets.
+permissions:
+  contents: read
+
 jobs:
   precios:
     # Analisis de precios del proveedor: 1 vez al dia a las 12:00 Colombia (17:00 UTC)

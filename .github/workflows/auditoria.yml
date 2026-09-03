@@ -7,6 +7,11 @@ on:
     - cron: '0 22 * * *'   # 05:00 pm Bogota
   workflow_dispatch: {}     # permite correrla a mano desde la pestana Actions
 
+# Menos permisos posibles: ningun workflow escribe en el repo, solo lee el
+# codigo y habla con APIs externas usando los secrets.
+permissions:
+  contents: read
+
 jobs:
   auditar:
     runs-on: ubuntu-latest

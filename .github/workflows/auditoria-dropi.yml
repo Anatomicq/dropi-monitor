@@ -7,6 +7,11 @@
 on:
   workflow_dispatch: {}
 
+# Menos permisos posibles: ningun workflow escribe en el repo, solo lee el
+# codigo y habla con APIs externas usando los secrets.
+permissions:
+  contents: read
+
 jobs:
   auditoria:
     runs-on: ubuntu-latest

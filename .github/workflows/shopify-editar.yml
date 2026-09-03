@@ -17,6 +17,11 @@ on:
         description: 'Nuevo precio, sin puntos ni $ (solo si accion=precio). Ej: 43000'
         required: false
 
+# Menos permisos posibles: ningun workflow escribe en el repo, solo lee el
+# codigo y habla con APIs externas usando los secrets.
+permissions:
+  contents: read
+
 jobs:
   editar:
     runs-on: ubuntu-latest
