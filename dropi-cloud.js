@@ -16,6 +16,7 @@ const { obtenerProductosShopify } = require('./obtener-productos-shopify');
 const { sincronizarCostos } = require('./sincronizar-costos');
 const { sincronizarProveedoresKits } = require('./sincronizar-proveedores-kits');
 const { ordenarColecciones } = require('./ordenar-colecciones');
+const { sincronizarAhorroPacks } = require('./sincronizar-ahorro-packs');
 
 const EMAIL      = process.env.DROPI_EMAIL;
 const PASSWORD   = process.env.DROPI_PASSWORD;
@@ -493,6 +494,18 @@ async function main() {
         });
       } catch (e) {
         log('⚠️ No se pudo ordenar las colecciones: ' + e.message);
+      }
+      // Ahorro de los packs de cantidad -> lo muestra la tarjeta de producto.
+      // Si cambian los precios y nadie recalcula, la tarjeta anuncia un
+      // descuento que ya no existe; por eso se revisa en cada corrida.
+      try {
+        await sincronizarAhorroPacks({
+          STORE: process.env.SHOPIFY_STORE,
+          CID: process.env.SHOPIFY_CLIENT_ID,
+          CS: process.env.SHOPIFY_CLIENT_SECRET,
+        });
+      } catch (e) {
+        log('⚠️ No se pudo actualizar el ahorro de los packs: ' + e.message);
       }
     } catch (e) {
       log('⚠️ No se pudo actualizar Shopify: ' + e.message);
