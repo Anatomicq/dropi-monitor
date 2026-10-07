@@ -128,6 +128,14 @@ async function consultar(id, token) {
 }
 
 // Normaliza un teléfono colombiano a formato internacional para wa.me (57XXXXXXXXXX).
+/** Dropi RESPONDIO que el producto no esta en la cuenta: ya no existe de verdad.
+ *  Se distingue a proposito de un existe:false por HTTP 429/5xx, que es un bloqueo
+ *  temporal. La diferencia importa: si tratáramos cualquier existe:false como
+ *  "no existe", una tanda de rate-limit dejaría el catálogo entero en AGOTADO. */
+function noExisteEnDropi(d) {
+  return !!d && !d.existe && !!d.error && /inválida/i.test(d.error);
+}
+
 function normalizarTelefonoCO(tel) {
   let n = String(tel || '').replace(/[^\d]/g, '');
   if (!n) return '';
@@ -445,6 +453,22 @@ async function main() {
           } else {
             stockPorId.set(id, disponible ? d.stock : 0);
           }
+        } else if (id && noExisteEnDropi(d)) {
+          // El producto YA NO ESTA en la cuenta de Dropi. Sus pedidos fallan igual que
+          // los de un producto archivado, asi que tiene que salir AGOTADO lo mismo.
+          //
+          // Antes este caso se saltaba (todo el bloque colgaba de `d.existe`) y Shopify
+          // se quedaba con el ultimo stock conocido: el 2026-10-06 habia 4 productos
+          // comprables sin respaldo en Dropi, uno con 2.742 unidades fantasma.
+          //
+          // Solo entra aqui el "no existe" CONFIRMADO por Dropi (ver noExisteEnDropi):
+          // un existe:false por HTTP 429/5xx es bloqueo temporal y no se toca.
+          //
+          // LIMITACION CONOCIDA: en productos VARIABLES esta entrada va por el id del
+          // producto, y si sus variantes en Shopify tienen el barcode compuesto
+          // (producto-variacion, p.ej. 1732654-1381134) el emparejador no las encuentra
+          // y hay que ponerlas en 0 a mano. Queda reportado como "no existe" en la hoja.
+          stockPorId.set(id, 0);
         }
       }
       log(`Actualizando stock en Shopify (${stockPorId.size} productos)...`);
