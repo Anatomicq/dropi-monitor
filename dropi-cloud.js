@@ -425,6 +425,11 @@ async function main() {
       // (y desde la limpieza de agosto 2026, tambien en el SKU). El SKU antiguo era
       // texto libre y estaba duplicado en 10 grupos, por eso ya no se usa como clave.
       const stockPorId = new Map();
+      // IDs de PRODUCTO que ya no existen en Dropi. Van aparte de stockPorId porque en
+      // los productos VARIABLES el id del producto no empareja con nada (el indice de
+      // Shopify va por id de variacion) y hay que agotar todas sus variantes por prefijo
+      // del barcode. Ver actualizarStockShopify(.., .., agotarProductos).
+      const agotarProductos = new Set();
       // Precio base de Dropi = costo por unidad. Se carga en Shopify para que la
       // auditoría pueda calcular el margen sin volver a consultar a Dropi.
       const costoPorId = new Map();
@@ -464,19 +469,24 @@ async function main() {
           // Solo entra aqui el "no existe" CONFIRMADO por Dropi (ver noExisteEnDropi):
           // un existe:false por HTTP 429/5xx es bloqueo temporal y no se toca.
           //
-          // LIMITACION CONOCIDA: en productos VARIABLES esta entrada va por el id del
-          // producto, y si sus variantes en Shopify tienen el barcode compuesto
-          // (producto-variacion, p.ej. 1732654-1381134) el emparejador no las encuentra
-          // y hay que ponerlas en 0 a mano. Queda reportado como "no existe" en la hoja.
+          // Dos vias, porque el producto puede ser simple o variable:
+          //  - stockPorId con el id del producto resuelve el caso SIMPLE (su barcode es
+          //    el id pelado).
+          //  - agotarProductos resuelve el VARIABLE: ahi el barcode es compuesto
+          //    (producto-variacion, p.ej. 1732654-1381134) y el indice va por la cola,
+          //    asi que el id del producto no empareja con nada. Se agotan todas sus
+          //    variantes buscando por el prefijo del barcode.
           stockPorId.set(id, 0);
+          agotarProductos.add(id);
         }
       }
-      log(`Actualizando stock en Shopify (${stockPorId.size} productos)...`);
+      log(`Actualizando stock en Shopify (${stockPorId.size} productos`
+        + (agotarProductos.size ? `, ${agotarProductos.size} a agotar por no existir en Dropi` : '') + ')...');
       await actualizarStockShopify({
         STORE: process.env.SHOPIFY_STORE,
         CID: process.env.SHOPIFY_CLIENT_ID,
         CS: process.env.SHOPIFY_CLIENT_SECRET,
-      }, stockPorId);
+      }, stockPorId, agotarProductos);
       // Costo por unidad (precio base de Dropi) -> alimenta el margen en la auditoría.
       await sincronizarCostos({
         STORE: process.env.SHOPIFY_STORE,

@@ -49,7 +49,13 @@ const M_ACTIVATE = `mutation($id:ID!,$loc:ID!,$qty:Int){ inventoryActivate(inven
  * @param {Object} cfg { STORE, CID, CS }
  * @param {Map<string,number>|Object} stockPorSku  sku -> cantidad (stock de Dropi)
  */
-async function actualizarStockShopify(cfg, stockPorSku) {
+/** @param agotarProductos Set de IDs de PRODUCTO de Dropi que hay que dejar en 0 en
+ *  TODAS sus variantes. Existe para el caso del producto VARIABLE que desaparecio de
+ *  Dropi: ahi solo conocemos el id del producto, y el indice esta armado por id de
+ *  VARIACION (la cola del barcode "idProducto-idVariacion"), asi que no hay match
+ *  directo. Se resuelve por prefijo del barcode. SOLO escribe 0: nunca se usa para
+ *  repartir un stock positivo, porque eso multiplicaria el inventario entre variantes. */
+async function actualizarStockShopify(cfg, stockPorSku, agotarProductos) {
   const { STORE, CID, CS } = cfg;
   if (!STORE || !CID || !CS) { log('Faltan credenciales de Shopify, se omite la actualización.'); return; }
   const stock = stockPorSku instanceof Map ? stockPorSku : new Map(Object.entries(stockPorSku));
@@ -68,6 +74,9 @@ async function actualizarStockShopify(cfg, stockPorSku) {
   //    el SKU es campo libre y estuvo duplicado (ver auditoria), por eso va de respaldo.
   const byBarcode = new Map(); // barcode -> { inventoryItemId, tracked }
   const bySku = new Map();     // sku     -> idem
+  // idProducto -> [refs de TODAS sus variantes], armado con el prefijo del barcode
+  // compuesto. Solo lo usa el agotado por producto (ver agotarProductos).
+  const porProducto = new Map();
   let cursor = null, page = 0, dupBarcode = 0;
   do {
     const d = await gql(STORE, t, Q_VARS, { c: cursor });
@@ -84,6 +93,13 @@ async function actualizarStockShopify(cfg, stockPorSku) {
         if (b.indexOf('-') !== -1) {
           const cola = b.slice(b.lastIndexOf('-') + 1).trim();
           if (cola && cola !== b && !byBarcode.has(cola)) byBarcode.set(cola, ref);
+          // La cabeza es el id del PRODUCTO: agrupamos todas sus variantes para
+          // poder agotarlas juntas cuando el producto desaparece de Dropi.
+          const cabeza = b.slice(0, b.indexOf('-')).trim();
+          if (cabeza) {
+            if (!porProducto.has(cabeza)) porProducto.set(cabeza, []);
+            porProducto.get(cabeza).push(ref);
+          }
         }
       }
       if (n.sku) {
@@ -110,6 +126,24 @@ async function actualizarStockShopify(cfg, stockPorSku) {
       else continue; // sin seguimiento a proposito (ver nota arriba): no fijar cantidad
     }
     quantities.push({ inventoryItemId: v.id, locationId: loc.id, quantity: Math.max(0, Math.round(Number(cant) || 0)) });
+  }
+
+  // 3-bis) Agotado por PRODUCTO: para los que desaparecieron de Dropi y son variables,
+  // el id del producto no empareja con nada (el indice va por id de variacion). Aqui se
+  // resuelve por el prefijo del barcode compuesto y se ponen en 0 TODAS sus variantes.
+  // Escribe 0 y nada mas: no reparte stock positivo.
+  let agotadasPorProducto = 0;
+  for (const pid of (agotarProductos || [])) {
+    const refs = porProducto.get(String(pid).trim()) || [];
+    for (const ref of refs) {
+      if (!ref.tracked && !REACTIVAR_TRACKING) continue;
+      if (quantities.some((q) => q.inventoryItemId === ref.id)) continue; // ya tiene valor
+      quantities.push({ inventoryItemId: ref.id, locationId: loc.id, quantity: 0 });
+      agotadasPorProducto++;
+    }
+  }
+  if (agotadasPorProducto) {
+    log(`Agotando ${agotadasPorProducto} variante(s) de productos que ya no existen en Dropi.`);
   }
   log(`A actualizar: ${quantities.length} (${porBarcode} por barcode, ${porSku} por SKU) | sin match: ${sinMatch} | activar tracking: ${activarTrack.length}`);
 
