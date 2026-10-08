@@ -52,10 +52,16 @@ async function verificarVitrina(cfg, stockPorId) {
     for (const clave of candidatas) {
       if (muestra.length >= MUESTRA) break;
       const d = await gql(STORE, t,
-        'query($q:String){ productVariants(first:1, query:$q){ edges{ node{ sku product{ handle status } } } } }',
+        'query($q:String){ productVariants(first:1, query:$q){ edges{ node{ sku product{ handle status onlineStoreUrl } } } } }',
         { q: `sku:${clave}` });
       const e = d.productVariants.edges[0];
-      if (e && e.node.product.status === 'ACTIVE') muestra.push({ sku: e.node.sku, handle: e.node.product.handle });
+      if (e && e.node.product.status === 'ACTIVE') {
+        // Un producto puede estar ACTIVE y no estar publicado en la tienda online
+        // (onlineStoreUrl null). Esos dan 404 siempre: no es un fallo de la vitrina,
+        // asi que no entran en la muestra. Se avisa, pero no tumba la corrida.
+        if (e.node.product.onlineStoreUrl) muestra.push({ sku: e.node.sku, handle: e.node.product.handle });
+        else log(`nota: ${e.node.product.handle} esta activo con stock pero NO publicado en la tienda online; se omite de la muestra.`);
+      }
       await new Promise(r => setTimeout(r, 150));
     }
     if (!muestra.length) { log('ninguna candidata activa en Shopify; se omite.'); return; }
